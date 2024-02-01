@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_bencode;
 use serde_bytes::ByteBuf;
@@ -48,6 +49,53 @@ impl FromStr for TorrentFilePath {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct FileHashes(Vec<[u8; FileHashes::HASH_LENGTH]>);
+impl FileHashes {
+    const HASH_LENGTH: usize = 20; // length of the sha1 hash of a file
+}
+
+impl<'de> Deserialize<'de> for FileHashes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(FileHashes(deserializer.deserialize_bytes(FileHashVisitor)?))
+    }
+}
+
+struct FileHashVisitor;
+impl<'de> Visitor<'de> for FileHashVisitor {
+    type Value = Vec<[u8; FileHashes::HASH_LENGTH]>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            formatter,
+            "a byte string whose length is a multiple of {}",
+            FileHashes::HASH_LENGTH
+        )
+    }
+
+    fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        let len_bytes = bytes.len();
+
+        if bytes.len() % FileHashes::HASH_LENGTH == 0 && len_bytes != 0 {
+            return Err(E::custom(format!(
+                "file hash pieces should be a multiple of length {}",
+                FileHashes::HASH_LENGTH
+            )));
+        }
+
+        Ok(bytes
+            .chunks_exact(FileHashes::HASH_LENGTH)
+            .map(|piece| piece.try_into().expect("all chunnks are size 20"))
+            .collect())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     pub path: Vec<String>,
@@ -84,7 +132,7 @@ pub enum FileInfo {
 
         #[serde(rename = "piece length")]
         piece_length: i64,
-        pieces: ByteBuf,
+        pieces: FileHashes,
 
         private: Option<i64>,
     },
