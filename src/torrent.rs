@@ -8,7 +8,8 @@ use std::str::FromStr;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_bencode;
-use serde_bytes::ByteBuf;
+use serde_bytes;
+use static_str_ops::static_format;
 
 #[derive(Debug, Clone)]
 pub struct TorrentFilePath(PathBuf);
@@ -49,10 +50,19 @@ impl FromStr for TorrentFilePath {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct FileHashes(Vec<[u8; FileHashes::HASH_LENGTH]>);
+#[derive(Debug, Clone, Serialize)]
+pub struct FileHashes(Vec<[u8; FileHashes::SHA1_SIZE]>);
 impl FileHashes {
-    const HASH_LENGTH: usize = 20; // length of the sha1 hash of a file
+    const SHA1_SIZE: usize = 20; // length of the sha1 hash of a file
+}
+
+impl serde_bytes::Serialize for FileHashes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0.concat())
+    }
 }
 
 impl<'de> Deserialize<'de> for FileHashes {
@@ -66,14 +76,13 @@ impl<'de> Deserialize<'de> for FileHashes {
 
 struct FileHashVisitor;
 impl<'de> Visitor<'de> for FileHashVisitor {
-    type Value = Vec<[u8; FileHashes::HASH_LENGTH]>;
+    type Value = Vec<[u8; FileHashes::SHA1_SIZE]>;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            formatter,
-            "a byte string whose length is a multiple of {}",
-            FileHashes::HASH_LENGTH
-        )
+        formatter.write_str(static_format!(
+            "a byte sequence  whose length is a multiple of {}",
+            FileHashes::SHA1_SIZE
+        ))
     }
 
     fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
@@ -82,17 +91,24 @@ impl<'de> Visitor<'de> for FileHashVisitor {
     {
         let len_bytes = bytes.len();
 
-        if bytes.len() % FileHashes::HASH_LENGTH == 0 && len_bytes != 0 {
-            return Err(E::custom(format!(
+        if bytes.len() % FileHashes::SHA1_SIZE != 0 && len_bytes != 0 {
+            return Err(E::custom(static_format!(
                 "file hash pieces should be a multiple of length {}",
-                FileHashes::HASH_LENGTH
+                FileHashes::SHA1_SIZE
             )));
         }
 
-        Ok(bytes
-            .chunks_exact(FileHashes::HASH_LENGTH)
-            .map(|piece| piece.try_into().expect("all chunnks are size 20"))
-            .collect())
+        let file_hashes = bytes
+            .chunks_exact(FileHashes::SHA1_SIZE)
+            .map(|chunk| {
+                chunk.try_into().expect(static_format!(
+                    "all chunks are size {}",
+                    FileHashes::SHA1_SIZE
+                ))
+            })
+            .collect();
+
+        Ok(file_hashes)
     }
 }
 
@@ -105,7 +121,7 @@ pub struct File {
     pub md5sum: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum FileInfo {
     MultiFile {
@@ -116,7 +132,9 @@ pub enum FileInfo {
 
         #[serde(rename = "piece length")]
         piece_length: i64,
-        pieces: ByteBuf,
+
+        #[serde(serialize_with = "serde_bytes::serialize")]
+        pieces: FileHashes,
 
         #[serde(default)]
         private: Option<i64>,
@@ -132,6 +150,8 @@ pub enum FileInfo {
 
         #[serde(rename = "piece length")]
         piece_length: i64,
+
+        #[serde(serialize_with = "serde_bytes::serialize")]
         pieces: FileHashes,
 
         private: Option<i64>,
