@@ -51,9 +51,9 @@ impl FromStr for TorrentFilePath {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct FileHashes(Vec<[u8; FileHashes::SHA1_SIZE]>);
+pub struct FileHashes(Vec<[u8; FileHashes::HASH_SIZE]>);
 impl FileHashes {
-    const SHA1_SIZE: usize = 20; // length of the sha1 hash of a file
+    pub const HASH_SIZE: usize = 20;
 }
 
 impl serde_bytes::Serialize for FileHashes {
@@ -76,12 +76,12 @@ impl<'de> Deserialize<'de> for FileHashes {
 
 struct FileHashVisitor;
 impl<'de> Visitor<'de> for FileHashVisitor {
-    type Value = Vec<[u8; FileHashes::SHA1_SIZE]>;
+    type Value = Vec<[u8; FileHashes::HASH_SIZE]>;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str(static_format!(
             "a byte sequence  whose length is a multiple of {}",
-            FileHashes::SHA1_SIZE
+            FileHashes::HASH_SIZE
         ))
     }
 
@@ -89,26 +89,28 @@ impl<'de> Visitor<'de> for FileHashVisitor {
     where
         E: de::Error,
     {
-        let len_bytes = bytes.len();
+        let n_bytes = bytes.len();
 
-        if bytes.len() % FileHashes::SHA1_SIZE != 0 && len_bytes != 0 {
+        type FH = FileHashes;
+        if n_bytes % FH::HASH_SIZE != 0 {
             return Err(E::custom(static_format!(
                 "file hash pieces should be a multiple of length {}",
-                FileHashes::SHA1_SIZE
+                FH::HASH_SIZE
             )));
         }
 
-        let file_hashes = bytes
-            .chunks_exact(FileHashes::SHA1_SIZE)
+        //TODO: use array_chunks::<20> instead of chunks_exact when it becomes stable.
+        let file_hash_slices = bytes
+            .chunks_exact(FH::HASH_SIZE)
             .map(|chunk| {
                 chunk.try_into().expect(static_format!(
-                    "all chunks are size {}",
-                    FileHashes::SHA1_SIZE
+                    "chunks_exact returns only chunks which are length {}",
+                    FH::HASH_SIZE
                 ))
             })
             .collect();
 
-        Ok(file_hashes)
+        Ok(file_hash_slices)
     }
 }
 
