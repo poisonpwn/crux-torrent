@@ -1,4 +1,4 @@
-use anyhow;
+use super::tracker::request::Requestable;
 use sha1_smol::Sha1;
 use std::ffi::OsStr;
 use std::fs;
@@ -7,8 +7,6 @@ use std::str::FromStr;
 
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
-use serde_bencode;
-use serde_bytes;
 use static_str_ops::static_format;
 
 #[derive(Debug, Clone)]
@@ -133,7 +131,7 @@ pub enum FileInfo {
         files: Vec<File>,
 
         #[serde(rename = "piece length")]
-        piece_length: i64,
+        piece_length: usize,
 
         #[serde(serialize_with = "serde_bytes::serialize")]
         pieces: FileHashes,
@@ -145,13 +143,13 @@ pub enum FileInfo {
     SingleFile {
         #[serde(rename = "name")]
         filename: String,
-        length: i64,
+        length: usize,
 
         #[serde(default)]
         md5sum: Option<String>,
 
         #[serde(rename = "piece length")]
-        piece_length: i64,
+        piece_length: usize,
 
         #[serde(serialize_with = "serde_bytes::serialize")]
         pieces: FileHashes,
@@ -160,10 +158,17 @@ pub enum FileInfo {
     },
 }
 
-impl FileInfo {
-    pub fn get_sha1_digest(&self) -> anyhow::Result<String> {
+impl Requestable for FileInfo {
+    fn get_info_hash(&self) -> anyhow::Result<[u8; sha1_smol::DIGEST_LENGTH]> {
         let info_hash = serde_bencode::to_bytes(self)?;
-        Ok(Sha1::from(info_hash).hexdigest())
+        Ok(dbg!(Sha1::from(info_hash).digest()).bytes())
+    }
+
+    fn get_request_length(&self) -> usize {
+        match self {
+            Self::SingleFile { length, .. } => length.clone(),
+            Self::MultiFile { .. } => todo!(),
+        }
     }
 }
 

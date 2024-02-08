@@ -2,6 +2,9 @@ use clap::{self, Parser};
 
 mod torrent;
 use torrent::TorrentFilePath;
+use tracker::request::{PeerId, TrackerRequest};
+
+mod tracker;
 
 #[derive(Parser, Debug)]
 #[command(author, about, long_about = None)]
@@ -21,8 +24,10 @@ fn main() -> Result<(), anyhow::Error> {
     let matches = Cli::parse();
     let torrent = matches.source.decode_file_contents()?;
 
-    let info_hash = torrent.info.get_sha1_digest()?;
+    let peer_id = PeerId::random();
 
-    dbg!(info_hash);
+    let request = TrackerRequest::new(peer_id, matches.port, &torrent.info)?;
+    dbg!(request);
+
     Ok(())
 }
