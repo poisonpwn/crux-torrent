@@ -167,7 +167,7 @@ impl Requestable for FileInfo {
     fn get_request_length(&self) -> usize {
         match self {
             Self::SingleFile { length, .. } => *length,
-            Self::MultiFile { .. } => todo!(),
+            Self::MultiFile { files, .. } => files.iter().map(|file| file.length).sum(),
         }
     }
 }
