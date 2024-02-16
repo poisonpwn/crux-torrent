@@ -115,7 +115,7 @@ impl<'de> Visitor<'de> for FileHashVisitor {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     pub path: Vec<String>,
-    pub length: i64,
+    pub length: usize,
 
     #[serde(default)]
     pub md5sum: Option<String>,
