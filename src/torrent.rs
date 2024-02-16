@@ -166,7 +166,7 @@ impl Requestable for FileInfo {
 
     fn get_request_length(&self) -> usize {
         match self {
-            Self::SingleFile { length, .. } => length.clone(),
+            Self::SingleFile { length, .. } => *length,
             Self::MultiFile { .. } => todo!(),
         }
     }
