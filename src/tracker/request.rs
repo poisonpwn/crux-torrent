@@ -6,7 +6,7 @@ pub struct PeerId([u8; Self::PEER_ID_SIZE]);
 
 impl PeerId {
     pub const PEER_ID_SIZE: usize = 20;
-    pub const PEER_ID_VENDOR_PREFIX: &[u8; 8] = b"-CX0000-";
+    pub const PEER_ID_VENDOR_PREFIX: &'static [u8; 8] = b"-CX0000-";
     const PREFIX_LEN: usize = Self::PEER_ID_VENDOR_PREFIX.len();
     const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PREFIX_LEN;
 
