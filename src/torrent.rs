@@ -115,7 +115,7 @@ impl<'de> Visitor<'de> for FileHashVisitor {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     pub path: Vec<String>,
-    pub length: i64,
+    pub length: usize,
 
     #[serde(default)]
     pub md5sum: Option<String>,
@@ -166,8 +166,8 @@ impl Requestable for FileInfo {
 
     fn get_request_length(&self) -> usize {
         match self {
-            Self::SingleFile { length, .. } => length.clone(),
-            Self::MultiFile { .. } => todo!(),
+            Self::SingleFile { length, .. } => *length,
+            Self::MultiFile { files, .. } => files.iter().map(|file| file.length).sum(),
         }
     }
 }
