@@ -31,7 +31,7 @@ impl TorrentFilePath {
         Ok(TorrentFilePath(path))
     }
 
-    pub fn decode_file_contents(&self) -> Result<Torrent, anyhow::Error> {
+    pub fn decode_file_contents(&self) -> anyhow::Result<Torrent> {
         let file_contents = fs::read(&self.0)?;
         let torrent: Torrent =
             serde_bencode::from_bytes(&file_contents).map_err(anyhow::Error::msg)?;
