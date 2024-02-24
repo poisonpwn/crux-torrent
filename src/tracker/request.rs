@@ -2,6 +2,7 @@ use rand::distributions::{Alphanumeric, DistString};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
 pub struct PeerId([u8; Self::PEER_ID_SIZE]);
 
 impl PeerId {
@@ -29,12 +30,12 @@ impl PeerId {
             suffix
                 .as_bytes()
                 .try_into()
-                .expect("should not fail as suffix is exactly SUFFIX_LEN long"),
+                .expect("can't fail as suffix is exactly SUFFIX_LEN long"),
         )
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct TrackerRequest {
     /// urlencoded byte representation of the sha1 hash of info.
     pub info_hash: [u8; Self::INFO_HASH_SIZE],
@@ -72,6 +73,10 @@ impl TrackerRequest {
             left: requestable.get_request_length(),
             compact: 1,
         })
+    }
+
+    fn to_url_query(&self) -> String {
+        todo!()
     }
 }
 
