@@ -1,33 +1,18 @@
-use clap::{self, Parser};
-
-mod torrent;
-use torrent::TorrentFilePath;
-use tracker::request::{PeerId, TrackerRequest};
-
+mod cli;
+mod metainfo;
 mod tracker;
 
-#[derive(Parser, Debug)]
-#[command(author, about, long_about = None)]
-/// a cli bittorrent (v1) client written in rust.
-struct Cli {
-    #[arg(required = true)]
-    /// the source for the torrent information, i.e a torrent file.
-    /// torrent files must have the .torrent extention
-    source: TorrentFilePath,
+use cli::Cli;
 
-    #[arg(short, long, default_value = "8860")]
-    /// the port on which to listen to incoming messages.
-    port: u16,
-}
+use clap::Parser;
+use tracker::request::{PeerId, TrackerRequest};
 
 fn main() -> Result<(), anyhow::Error> {
     let matches = Cli::parse();
-    let torrent = matches.source.decode_file_contents()?;
+    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source)?;
+    let request = TrackerRequest::new(PeerId::random(), matches.port, &metainfo.file_info)?;
 
-    let peer_id = PeerId::random();
-
-    let request = TrackerRequest::new(peer_id, matches.port, &torrent.info)?;
-    dbg!(request);
+    dbg!(&request);
 
     Ok(())
 }
