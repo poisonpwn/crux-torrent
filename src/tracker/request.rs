@@ -1,3 +1,4 @@
+use form_urlencoded::byte_serialize;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Serialize;
 
@@ -57,6 +58,7 @@ pub struct TrackerRequest {
 
     /// boolean(encoded as a number) for whether to use the
     /// compact reprsentation usually enabled except for backwards compatibility.
+    #[allow(unused)]
     compact: u8,
 }
 
@@ -73,6 +75,30 @@ impl TrackerRequest {
             left: requestable.get_request_length(),
             compact: 1,
         })
+    }
+
+    fn encode_pairs<I, A, B>(pairs: I) -> String
+    where
+        I: IntoIterator<Item = (A, B)>,
+        A: AsRef<[u8]>,
+        B: AsRef<[u8]>,
+    {
+        let mut query = String::new();
+        let mut iter = pairs.into_iter();
+        if let Some((first_key, first_value)) = iter.next() {
+            Self::write_pair(&mut query, first_key.as_ref(), first_value.as_ref());
+            for (key, value) in iter {
+                query.push('&');
+                Self::write_pair(&mut query, key.as_ref(), value.as_ref());
+            }
+        }
+        query
+    }
+
+    fn write_pair(query: &mut String, key: &[u8], value: &[u8]) {
+        query.extend(byte_serialize(key));
+        query.push('=');
+        query.extend(byte_serialize(value));
     }
 
     fn to_url_query(&self) -> String {
