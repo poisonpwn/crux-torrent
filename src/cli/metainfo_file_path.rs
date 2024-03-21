@@ -1,9 +1,6 @@
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-use crate::metainfo::Metainfo;
 
 #[derive(Debug, Clone)]
 pub struct MetainfoFilePath(pub PathBuf);
