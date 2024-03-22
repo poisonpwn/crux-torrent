@@ -103,14 +103,15 @@ impl TrackerRequest {
         // unwrap here should be fine as the query pairs iter's never empty.
         let (first_key, first_val) = query_pairs.next().unwrap();
 
-        // we don't need to percent encode again as string fields are alphanumeric.
-        let mut output = format!("{}={}", first_key, first_val);
-
         query_pairs
-            .fold(&mut output, |output: &mut String, (key, val)| {
-                output.extend(["&", key.as_ref(), "=", val.as_ref()]);
-                output
-            })
+            .fold(
+                // we don't need to percent encode again as string fields are alphanumeric.
+                &mut format!("{}={}", first_key, first_val),
+                |output: &mut String, (key, val)| {
+                    output.extend(["&", key.as_ref(), "=", val.as_ref()]);
+                    output
+                },
+            )
             .to_string()
     }
 }
