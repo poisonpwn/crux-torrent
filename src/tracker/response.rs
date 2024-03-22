@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TrackerResponse {
-    #[serde(rename = "request interval")]
+    #[serde(rename = "interval")]
     pub request_interval_seconds: u64,
 
     #[serde(rename = "peers")]
