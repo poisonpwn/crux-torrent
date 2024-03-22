@@ -1,9 +1,16 @@
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Serialize;
+use urlencoding;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(transparent)]
 pub struct PeerId([u8; Self::PEER_ID_SIZE]);
+
+impl AsRef<[u8; Self::PEER_ID_SIZE]> for PeerId {
+    fn as_ref(&self) -> &[u8; Self::PEER_ID_SIZE] {
+        &self.0
+    }
+}
 
 impl PeerId {
     pub const PEER_ID_SIZE: usize = 20;
@@ -57,6 +64,7 @@ pub struct TrackerRequest {
 
     /// boolean(encoded as a number) for whether to use the
     /// compact reprsentation usually enabled except for backwards compatibility.
+    #[allow(unused)]
     compact: u8,
 }
 
@@ -76,7 +84,34 @@ impl TrackerRequest {
     }
 
     fn to_url_query(&self) -> String {
-        todo!()
+        let query_pairs: [(&str, String); 7] = [
+            (
+                "info_hash",
+                urlencoding::encode_binary(&self.info_hash).to_string(),
+            ),
+            (
+                "peer_id",
+                urlencoding::encode_binary(&self.peer_id.as_ref()[..]).to_string(),
+            ),
+            ("port", self.port.to_string()),
+            ("uploaded", self.uploaded.to_string()),
+            ("downloaded", self.downloaded.to_string()),
+            ("left", self.left.to_string()),
+            ("compact", self.compact.to_string()),
+        ];
+        let mut query_pairs = query_pairs.into_iter();
+        // unwrap here should be fine as the query pairs iter's never empty.
+        let (first_key, first_val) = query_pairs.next().unwrap();
+
+        // we don't need to percent encode again as string fields are alphanumeric.
+        let mut output = format!("{}={}", first_key, first_val);
+
+        query_pairs
+            .fold(&mut output, |output: &mut String, (key, val)| {
+                output.extend(["&", key.as_ref(), "=", val.as_ref()]);
+                output
+            })
+            .to_string()
     }
 }
 
