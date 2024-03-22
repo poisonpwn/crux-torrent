@@ -1,18 +1,60 @@
 use reqwest::IntoUrl;
+use reqwest::Url;
 use serde::{de::Visitor, Deserialize};
+
+#[derive(Clone, Debug)]
+pub struct UdpUrl(Url);
+#[derive(Clone, Debug)]
+pub struct HttpUrl(Url);
 
 #[derive(Debug, Clone)]
 pub enum TrackerUrl {
-    HTTP(String),
-    UDP(String),
+    HTTP(HttpUrl),
+    UDP(UdpUrl),
+}
+
+impl AsRef<str> for HttpUrl {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl AsRef<str> for UdpUrl {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl HttpUrl {
+    pub fn into_inner(self) -> Url {
+        self.0
+    }
+}
+
+impl UdpUrl {
+    fn into_inner(self) -> Url {
+        self.0
+    }
+}
+
+impl Into<Url> for HttpUrl {
+    fn into(self) -> Url {
+        self.into_inner()
+    }
+}
+
+impl Into<Url> for UdpUrl {
+    fn into(self) -> Url {
+        self.into_inner()
+    }
 }
 
 impl TrackerUrl {
     fn new(url: impl IntoUrl) -> anyhow::Result<Self> {
         let url = url.into_url()?;
         Ok(match url.scheme() {
-            "http" => Self::HTTP(url.into()),
-            "udp" => Self::UDP(url.into()),
+            "http" => Self::HTTP(HttpUrl(url)),
+            "udp" => Self::UDP(UdpUrl(url)),
             scheme @ _ => anyhow::bail!(format!("unsupported scheme {:?} for tracker", scheme)),
         })
     }
