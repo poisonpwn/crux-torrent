@@ -83,7 +83,7 @@ impl TrackerRequest {
         })
     }
 
-    fn to_url_query(&self) -> String {
+    pub fn to_url_query(&self) -> String {
         let query_pairs: [(&str, String); 7] = [
             (
                 "info_hash",
