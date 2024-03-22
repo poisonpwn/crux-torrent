@@ -84,7 +84,7 @@ impl TrackerRequest {
     }
 
     pub fn to_url_query(&self) -> String {
-        let query_pairs: [(&str, String); 7] = [
+        let query_pairs = [
             (
                 "info_hash",
                 urlencoding::encode_binary(&self.info_hash).to_string(),
