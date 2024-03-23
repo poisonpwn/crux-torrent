@@ -38,7 +38,6 @@ impl<'a> Announce for HttpTracker<'a> {
         let mut request_url = self.announce_url.into_inner();
         request_url.set_query(Some(&request.to_url_query()));
         let response = self.client.get(request_url).send().await?.bytes().await?;
-        dbg!(&response);
         let response: TrackerResponse = serde_bencode::from_bytes(&response)?;
         Ok(response)
     }
