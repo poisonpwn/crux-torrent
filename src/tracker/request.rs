@@ -42,10 +42,29 @@ impl PeerId {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct InfoHash([u8; Self::INFO_HASH_SIZE]);
+impl InfoHash {
+    const INFO_HASH_SIZE: usize = sha1_smol::DIGEST_LENGTH;
+}
+
+impl InfoHash {
+    pub fn new(bytes: [u8; Self::INFO_HASH_SIZE]) -> Self {
+        Self(bytes)
+    }
+}
+impl AsRef<[u8; Self::INFO_HASH_SIZE]> for InfoHash {
+    fn as_ref(&self) -> &[u8; Self::INFO_HASH_SIZE] {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TrackerRequest {
     /// urlencoded byte representation of the sha1 hash of info.
-    pub info_hash: [u8; Self::INFO_HASH_SIZE],
+    pub info_hash: InfoHash,
 
     /// unique peer id string of length 20 bytes.
     pub peer_id: PeerId,
@@ -69,8 +88,6 @@ pub struct TrackerRequest {
 }
 
 impl TrackerRequest {
-    pub const INFO_HASH_SIZE: usize = sha1_smol::DIGEST_LENGTH;
-
     pub fn new(peer_id: PeerId, port: u16, requestable: &impl Requestable) -> anyhow::Result<Self> {
         Ok(Self {
             info_hash: requestable.get_info_hash()?,
@@ -87,7 +104,7 @@ impl TrackerRequest {
         let query_pairs = [
             (
                 "info_hash",
-                urlencoding::encode_binary(&self.info_hash).to_string(),
+                urlencoding::encode_binary(&self.info_hash.as_ref()[..]).to_string(),
             ),
             (
                 "peer_id",
@@ -117,6 +134,6 @@ impl TrackerRequest {
 }
 
 pub trait Requestable {
-    fn get_info_hash(&self) -> anyhow::Result<[u8; TrackerRequest::INFO_HASH_SIZE]>;
+    fn get_info_hash(&self) -> anyhow::Result<InfoHash>;
     fn get_request_length(&self) -> usize;
 }

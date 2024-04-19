@@ -1,3 +1,4 @@
+use crate::tracker::request::InfoHash;
 use crate::tracker::request::Requestable;
 use serde::{
     de::{self, Visitor},
@@ -53,9 +54,9 @@ pub enum FileInfo {
 }
 
 impl Requestable for FileInfo {
-    fn get_info_hash(&self) -> anyhow::Result<[u8; sha1_smol::DIGEST_LENGTH]> {
+    fn get_info_hash(&self) -> anyhow::Result<InfoHash> {
         let info_hash = serde_bencode::to_bytes(self)?;
-        Ok(dbg!(Sha1::from(info_hash).digest()).bytes())
+        Ok(InfoHash::new(Sha1::from(info_hash).digest().bytes()))
     }
 
     fn get_request_length(&self) -> usize {
