@@ -4,6 +4,7 @@ use urlencoding;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(transparent)]
+#[repr(transparent)]
 pub struct PeerId([u8; Self::PEER_ID_SIZE]);
 
 impl AsRef<[u8; Self::PEER_ID_SIZE]> for PeerId {
@@ -15,13 +16,13 @@ impl AsRef<[u8; Self::PEER_ID_SIZE]> for PeerId {
 impl PeerId {
     pub const PEER_ID_SIZE: usize = 20;
     pub const PEER_ID_VENDOR_PREFIX: &'static [u8; 8] = b"-CX0000-";
-    const PREFIX_LEN: usize = Self::PEER_ID_VENDOR_PREFIX.len();
-    const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PREFIX_LEN;
+    const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PEER_ID_VENDOR_PREFIX.len();
 
     pub fn new(suffix: &[u8; Self::SUFFIX_LEN]) -> Self {
         let mut peer_id = [0; Self::PEER_ID_SIZE];
 
-        let (prefix_segment, suffix_segment) = peer_id.split_at_mut(Self::PREFIX_LEN);
+        let (prefix_segment, suffix_segment) =
+            peer_id.split_at_mut(Self::PEER_ID_VENDOR_PREFIX.len());
         prefix_segment.copy_from_slice(Self::PEER_ID_VENDOR_PREFIX);
 
         suffix_segment.copy_from_slice(suffix);
@@ -83,7 +84,6 @@ pub struct TrackerRequest {
 
     /// boolean(encoded as a number) for whether to use the
     /// compact reprsentation usually enabled except for backwards compatibility.
-    #[allow(unused)]
     compact: u8,
 }
 
@@ -117,7 +117,7 @@ impl TrackerRequest {
             ("compact", self.compact.to_string()),
         ];
         let mut query_pairs = query_pairs.into_iter();
-        // unwrap here should be fine as the query pairs iter's never empty.
+        // unwrap here should be fine as the query pairs iter is never empty.
         let (first_key, first_val) = query_pairs.next().unwrap();
 
         query_pairs
