@@ -12,6 +12,7 @@ use tracker::{
 };
 
 use anyhow::Context;
+use futures::future::FutureExt;
 use metainfo::tracker_url::TrackerUrl;
 use peer_protocol::handshake::PeerHandshake;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -29,6 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
+        // TODO: handle udp trackerrs, BEP: https://www.bittorrent.org/beps/bep_0015.html
         TrackerUrl::UDP(udp_url) => todo!(),
         TrackerUrl::HTTP(http_url) => {
             HttpTracker::new(&client, http_url)
@@ -37,10 +39,19 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let peer_address = &response.peer_addreses[0];
-    let mut connection = tokio::net::TcpStream::connect(&peer_address)
+    dbg!(&response);
+
+    let connections = response
+        .peer_addreses
+        .iter()
+        .map(|addr| tokio::net::TcpStream::connect(addr).boxed())
+        .into_iter();
+
+    //  CHECK: does the remainint futures being forgotten cause problems.
+    let (mut connection, _remaining_futures) = futures::future::select_ok(connections)
         .await
-        .context(format!("connecting to peer at {:?}", &peer_address))?;
+        .context("all peers failed to connect")?;
+
     let info_hash = metainfo.file_info.get_info_hash()?;
     let mut handshake = PeerHandshake::new(info_hash, peer_id.clone());
 
@@ -51,15 +62,15 @@ async fn main() -> Result<(), anyhow::Error> {
         .map(|byte| *byte as char)
         .collect::<Vec<_>>());
 
-    connection
-        .write_all(&bytes)
-        .await
-        .context(format!("write handshake bytes to peer {:?}", &peer_address))?;
+    connection.write_all(&bytes).await.context(format!(
+        "write handshake bytes to peer {:?}",
+        &connection.peer_addr()
+    ))?;
 
-    connection
-        .read_exact(&mut bytes)
-        .await
-        .context(format!("write handshake bytes to peer {:?}", &peer_address))?;
+    connection.read_exact(&mut bytes).await.context(format!(
+        "write handshake bytes to peer {:?}",
+        &connection.peer_addr()
+    ))?;
     handshake = PeerHandshake::from_bytes(bytes);
     dbg!(&handshake);
 
