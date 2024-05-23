@@ -1,7 +1,6 @@
 use clap::{self, Parser};
 
-pub mod metainfo_file_path;
-use metainfo_file_path::MetainfoFilePath;
+use crate::metainfo::MetainfoFilePath;
 
 #[derive(Parser, Debug)]
 #[command(author, about, long_about = None)]
