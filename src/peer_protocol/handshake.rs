@@ -1,7 +1,9 @@
 use crate::tracker::request::{InfoHash, PeerId};
 
 #[derive(Debug, Clone)]
-#[repr(C)] // does this need packed?
+#[repr(C)] // makes sure the struct fields are arranged in the same order, there's also no padding
+           // in between because all the fields are byte aligned. (i.e this can be treated as a
+           // simple array of bytes).
 pub struct PeerHandshake {
     protocol_prefix_length: u8,
     protocol_prefix: [u8; 19],
