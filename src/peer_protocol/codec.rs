@@ -133,3 +133,57 @@ impl Decoder for PeerMessageCodec {
         Ok(Some(Some(msg)))
     }
 }
+
+impl Encoder<PeerMessage> for PeerMessageCodec {
+    type Error = anyhow::Error;
+    fn encode(&mut self, item: PeerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        let tag = item.tag() as u32;
+        const TAG_LEN: u32 = std::mem::size_of::<u32>() as u32;
+        type PM = PeerMessage;
+        match item {
+            PM::Choke | PM::Unchoke | PM::Interested | PM::NotInterested => {
+                dst.put_u32(TAG_LEN);
+                dst.put_u32(tag as u32);
+            }
+            PM::Have(index) => {
+                dst.put_u32(TAG_LEN + std::mem::size_of::<u32>() as u32);
+                dst.put_u32(index);
+            }
+            PM::Request {
+                index,
+                begin,
+                length,
+            }
+            | PM::Cancel {
+                index,
+                begin,
+                length,
+            } => {
+                dst.put_u32(TAG_LEN + 3 * std::mem::size_of::<u32>() as u32);
+                dst.put_u32(tag);
+                dst.put_u32(index);
+                dst.put_u32(begin);
+                dst.put_u32(length);
+            }
+
+            PM::Piece {
+                index,
+                begin,
+                piece,
+            } => {
+                dst.put_u32(TAG_LEN + (2 * std::mem::size_of::<u32>() + piece.len()) as u32);
+                dst.put_u32(tag);
+                dst.put_u32(index);
+                dst.put_u32(begin);
+                dst.put(piece.as_slice());
+            }
+
+            PM::Bitfield(bitfield) => {
+                dst.put_u32(TAG_LEN + bitfield.len() as u32);
+                dst.put_u32(tag);
+                dst.put(bitfield.as_slice());
+            }
+        }
+        Ok(())
+    }
+}
