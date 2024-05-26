@@ -54,7 +54,7 @@ impl PeerMessageCodec {
     // helper for the Cancel and Request variants only.
     fn decode_triple_variant(src: &mut bytes::BytesMut) -> anyhow::Result<(u32, u32, u32)> {
         const TRIPLE_SIZE: usize = 3 * std::mem::size_of::<u32>();
-        Self::bail_on_size_mismatch(src, TRIPLE_SIZE);
+        Self::bail_on_size_mismatch(src, TRIPLE_SIZE)?;
         Ok((src.get_u32(), src.get_u32(), src.get_u32()))
     }
 }
