@@ -30,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
-        // TODO: handle udp trackerrs, BEP: https://www.bittorrent.org/beps/bep_0015.html
+        // TODO: handle udp trackers, BEP: https://www.bittorrent.org/beps/bep_0015.html
         TrackerUrl::UDP(udp_url) => todo!(),
         TrackerUrl::HTTP(http_url) => {
             HttpTracker::new(&client, http_url)
