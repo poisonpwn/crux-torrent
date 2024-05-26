@@ -82,7 +82,7 @@ impl Decoder for PeerMessageCodec {
         // prevent malicious peers (if they exist) from hogging us.
         if len_header > Self::MAX_SIZE {
             anyhow::bail!(
-                "frames larger than 2 MiB will not be parsed. {}",
+                "frames of size {} (>2 MiB) prevented from being decoded.",
                 len_header
             )
         }
