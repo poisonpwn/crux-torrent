@@ -1,5 +1,4 @@
 pub mod files;
-pub mod metainfo_file_path;
 pub mod tracker_url;
 
 use serde::Deserialize;
