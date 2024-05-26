@@ -4,7 +4,8 @@ use tokio_util::{
 };
 
 #[repr(u8)]
-enum PeerMessage {
+#[derive(Debug, Clone)]
+pub enum PeerMessage {
     Choke = 0,
     Unchoke = 1,
     Interested = 2,
@@ -37,10 +38,10 @@ impl PeerMessage {
     }
 }
 
-struct PeerMessageCodec;
+pub struct PeerMessageCodec;
 
 impl PeerMessageCodec {
-    const MAX_SIZE: usize = 2 * (1 >> 10);
+    const MAX_SIZE: usize = 2 * (1 << 10);
 
     // bail if the peer sends invalid(less than what is required) length for the particular variant.
     fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
@@ -64,8 +65,11 @@ impl Decoder for PeerMessageCodec {
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> anyhow::Result<Option<Self::Item>> {
-        if src.len() < std::mem::size_of::<u32>() {
-            // return None to signify that more bytes need to be read for current frame.
+        const LEN_HEADER_SIZE: usize = std::mem::size_of::<u32>();
+
+        if src.len() < LEN_HEADER_SIZE {
+            // return None to signify that more bytes need to be read for current frame to be
+            // decoded.
             return Ok(None);
         }
 
@@ -75,18 +79,21 @@ impl Decoder for PeerMessageCodec {
             return Ok(Some(None));
         }
 
-        // prevent malicious peers from hogging us.
+        // prevent malicious peers (if they exist) from hogging us.
         if len_header > Self::MAX_SIZE {
-            anyhow::bail!("frames larger than 2 MiB will not be parsed.")
+            anyhow::bail!(
+                "frames larger than 2 MiB will not be parsed. {}",
+                len_header
+            )
         }
 
         if src.len() < len_header {
             src.reserve(len_header);
             return Ok(None);
         }
+        let mut src = src.split_to(len_header);
 
-        let tag = src.get_u32() as u8;
-
+        let tag = src.get_u8();
         type PM = PeerMessage;
         let msg = match tag {
             0 => PM::Choke,
@@ -94,13 +101,13 @@ impl Decoder for PeerMessageCodec {
             2 => PM::Interested,
             3 => PM::NotInterested,
             4 => {
-                Self::bail_on_size_mismatch(src, std::mem::size_of::<u32>())?;
+                Self::bail_on_size_mismatch(&mut src, std::mem::size_of::<u32>())?;
                 PM::Have(src.get_u32())
             }
             // a panic shouldn't happen here as any amount of bytes is valid
             5 => PM::Bitfield(src.to_vec()),
             6 => {
-                let (index, begin, length) = Self::decode_triple_variant(src)?;
+                let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
 
                 PM::Request {
                     index,
@@ -109,17 +116,16 @@ impl Decoder for PeerMessageCodec {
                 }
             }
             7 => {
-                Self::bail_on_size_mismatch(src, 2 * std::mem::size_of::<u32>())?;
-                let (index, begin) = (src.get_u32(), src.get_u32());
+                Self::bail_on_size_mismatch(&mut src, 2 * std::mem::size_of::<u32>())?;
 
                 PM::Piece {
-                    index,
-                    begin,
-                    piece: src.to_vec(), // don't need to check size as any length is valid.
+                    index: src.get_u32(),
+                    begin: src.get_u32(),
+                    piece: src.to_vec(),
                 }
             }
             8 => {
-                let (index, begin, length) = Self::decode_triple_variant(src)?;
+                let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
 
                 PM::Cancel {
                     index,
@@ -137,16 +143,19 @@ impl Decoder for PeerMessageCodec {
 impl Encoder<PeerMessage> for PeerMessageCodec {
     type Error = anyhow::Error;
     fn encode(&mut self, item: PeerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        let tag = item.tag() as u32;
-        const TAG_LEN: u32 = std::mem::size_of::<u32>() as u32;
+        const TAG_LEN: u32 = std::mem::size_of::<u8>() as u32;
+        let tag = item.tag();
+
         type PM = PeerMessage;
         match item {
             PM::Choke | PM::Unchoke | PM::Interested | PM::NotInterested => {
                 dst.put_u32(TAG_LEN);
-                dst.put_u32(tag as u32);
+                dst.put_u8(tag);
             }
             PM::Have(index) => {
                 dst.put_u32(TAG_LEN + std::mem::size_of::<u32>() as u32);
+                dst.put_u8(tag);
+
                 dst.put_u32(index);
             }
             PM::Request {
@@ -160,7 +169,8 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
                 length,
             } => {
                 dst.put_u32(TAG_LEN + 3 * std::mem::size_of::<u32>() as u32);
-                dst.put_u32(tag);
+                dst.put_u8(tag);
+
                 dst.put_u32(index);
                 dst.put_u32(begin);
                 dst.put_u32(length);
@@ -172,7 +182,8 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
                 piece,
             } => {
                 dst.put_u32(TAG_LEN + (2 * std::mem::size_of::<u32>() + piece.len()) as u32);
-                dst.put_u32(tag);
+                dst.put_u8(tag);
+
                 dst.put_u32(index);
                 dst.put_u32(begin);
                 dst.put(piece.as_slice());
@@ -180,7 +191,8 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
 
             PM::Bitfield(bitfield) => {
                 dst.put_u32(TAG_LEN + bitfield.len() as u32);
-                dst.put_u32(tag);
+                dst.put_u8(tag);
+
                 dst.put(bitfield.as_slice());
             }
         }
