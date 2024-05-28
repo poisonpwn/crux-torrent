@@ -28,6 +28,15 @@ impl<'a> HttpTracker<'a> {
     }
 }
 
+impl<'a> UdpTracker<'a> {
+    pub fn new(client: &'a UdpSocket, announce_url: UdpUrl) -> Self {
+        Self {
+            client,
+            announce_url,
+        }
+    }
+}
+
 pub trait Announce {
     async fn announce(self, request: &TrackerRequest) -> anyhow::Result<TrackerResponse>;
 }

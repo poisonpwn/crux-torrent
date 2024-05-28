@@ -8,7 +8,7 @@ use cli::Cli;
 use clap::Parser;
 use tracker::{
     request::{PeerId, TrackerRequest},
-    HttpTracker,
+    HttpTracker, UdpTracker,
 };
 
 use anyhow::Context;
@@ -28,11 +28,14 @@ async fn main() -> Result<(), anyhow::Error> {
 
     dbg!(&request);
 
-    let client = reqwest::Client::new();
     let response = match metainfo.announce {
         // TODO: handle udp trackerrs, BEP: https://www.bittorrent.org/beps/bep_0015.html
-        TrackerUrl::UDP(udp_url) => todo!(),
+        TrackerUrl::UDP(udp_url) => {
+            let client = tokio::net::UdpSocket::bind(format!("[::]:{}", matches.port)).await?;
+            UdpTracker::new(&client, udp_url).announce(&request).await?
+        }
         TrackerUrl::HTTP(http_url) => {
+            let client = reqwest::Client::new();
             HttpTracker::new(&client, http_url)
                 .announce(&request)
                 .await?
