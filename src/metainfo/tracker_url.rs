@@ -3,7 +3,7 @@ use reqwest::Url;
 use serde::{de::Visitor, Deserialize};
 
 #[derive(Clone, Debug)]
-pub struct UdpUrl(Url);
+pub struct UdpUrl(pub Url);
 #[derive(Clone, Debug)]
 pub struct HttpUrl(Url);
 
@@ -32,7 +32,7 @@ impl HttpUrl {
 }
 
 impl UdpUrl {
-    fn into_inner(self) -> Url {
+    pub fn into_inner(self) -> Url {
         self.0
     }
 }
