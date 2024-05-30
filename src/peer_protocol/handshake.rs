@@ -1,6 +1,6 @@
 use crate::tracker::request::{InfoHash, PeerId};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)] // makes sure the struct fields are arranged in the same order, there's also no padding
            // in between because all the fields are byte aligned. (i.e this can be treated as a
            // simple array of bytes).
@@ -31,5 +31,57 @@ impl PeerHandshake {
     // the unsafe is fine becuase the struct is just plain old data, any sequence of bits is valid.
     pub fn into_bytes(self) -> [u8; std::mem::size_of::<Self>()] {
         unsafe { std::mem::transmute::<Self, [u8; std::mem::size_of::<Self>()]>(self) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracker::request::{InfoHash, PeerId};
+    use rstest::*;
+    const INFO_HASH: [u8; 20] = [0; 20];
+    const PEER_ID_SUFFIX: [u8; PeerId::SUFFIX_LEN] = [7; PeerId::SUFFIX_LEN];
+    type PH = PeerHandshake;
+    type HB = [u8; std::mem::size_of::<PeerHandshake>()];
+
+    #[fixture]
+    fn peer_id() -> PeerId {
+        PeerId::new(&PEER_ID_SUFFIX)
+    }
+
+    #[fixture]
+    fn info_hash() -> InfoHash {
+        InfoHash::new(INFO_HASH)
+    }
+
+    #[fixture]
+    fn handshake(info_hash: InfoHash, peer_id: PeerId) -> PH {
+        PH::new(info_hash, peer_id)
+    }
+
+    #[fixture]
+    fn handshake_bytes(info_hash: InfoHash, peer_id: PeerId) -> HB {
+        let out = {
+            let mut out: Vec<u8> = Vec::new();
+            out.push(19);
+            out.extend_from_slice(b"BitTorrent protocol");
+            out.extend_from_slice(&[0; 8]);
+            out.extend_from_slice(info_hash.as_ref());
+            out.extend_from_slice(peer_id.as_ref());
+            out
+        };
+
+        out.try_into().unwrap()
+    }
+
+    #[rstest]
+    fn test_into_bytes(handshake: PeerHandshake, handshake_bytes: HB) {
+        assert_eq!(handshake.into_bytes(), handshake_bytes);
+    }
+
+    #[rstest]
+    fn test_decode_from_bytes(handshake_bytes: HB) {
+        let out = PH::from_bytes(handshake_bytes);
+        assert_eq!(out.into_bytes(), handshake_bytes);
     }
 }

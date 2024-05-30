@@ -2,7 +2,7 @@ use rand::distributions::{Alphanumeric, DistString};
 use serde::Serialize;
 use urlencoding;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct PeerId([u8; Self::PEER_ID_SIZE]);
@@ -16,7 +16,7 @@ impl AsRef<[u8; Self::PEER_ID_SIZE]> for PeerId {
 impl PeerId {
     pub const PEER_ID_SIZE: usize = 20;
     pub const PEER_ID_VENDOR_PREFIX: &'static [u8; 8] = b"-CX0000-";
-    const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PEER_ID_VENDOR_PREFIX.len();
+    pub const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PEER_ID_VENDOR_PREFIX.len();
 
     pub fn new(suffix: &[u8; Self::SUFFIX_LEN]) -> Self {
         let mut peer_id = [0; Self::PEER_ID_SIZE];
@@ -43,7 +43,7 @@ impl PeerId {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct InfoHash([u8; Self::INFO_HASH_SIZE]);
