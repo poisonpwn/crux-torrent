@@ -3,30 +3,44 @@ use tokio_util::{
     codec::{Decoder, Encoder},
 };
 
+struct PeerMessageTags;
+impl PeerMessageTags {
+    // tags according to https://www.bittorrent.org/beps/bep_0003.html
+    const CHOKE: u8 = 0;
+    const UNCHOKE: u8 = 1;
+    const INTERERSTED: u8 = 2;
+    const NOT_INTERESTED: u8 = 3;
+    const HAVE: u8 = 4;
+    const BITFIELD: u8 = 5;
+    const REQUEST: u8 = 6;
+    const PIECE: u8 = 7;
+    const CANCEL: u8 = 8;
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum PeerMessage {
-    Choke = 0,
-    Unchoke = 1,
-    Interested = 2,
-    NotInterested = 3,
-    Have(u32) = 4,
-    Bitfield(Vec<u8>) = 5,
+    Choke = PeerMessageTags::CHOKE,
+    Unchoke = PeerMessageTags::UNCHOKE,
+    Interested = PeerMessageTags::INTERERSTED,
+    NotInterested = PeerMessageTags::NOT_INTERESTED,
+    Have(u32) = PeerMessageTags::HAVE,
+    Bitfield(Vec<u8>) = PeerMessageTags::BITFIELD,
     Request {
         index: u32,
         begin: u32,
         length: u32,
-    } = 6,
+    } = PeerMessageTags::REQUEST,
     Piece {
         index: u32,
         begin: u32,
         piece: Vec<u8>,
-    } = 7,
+    } = PeerMessageTags::PIECE,
     Cancel {
         index: u32,
         begin: u32,
         length: u32,
-    } = 8,
+    } = PeerMessageTags::CANCEL,
 }
 
 impl PeerMessage {
@@ -34,6 +48,7 @@ impl PeerMessage {
         // SAFETY: because PeerMessage is a repr(u8) its also repr(C) and the first byte(u8) represents
         // the enum tag (dereferencing the *self casted to a *u8 gives first byte).
         // taken from std::mem::discriminant docs.
+        // https://doc.rust-lang.org/std/mem/fn.discriminant.html
         unsafe { *<*const _>::from(self).cast::<u8>() }
     }
 }
@@ -47,12 +62,16 @@ impl PeerMessageCodec {
     fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
         let len = src.len();
         if len < min_size {
-            anyhow::bail!("buf size {} does not match size for tag {}", len, min_size)
+            anyhow::bail!(
+                "buf size sent by peer {} does not match size for tag {}",
+                len,
+                min_size
+            )
         }
         Ok(())
     }
 
-    // helper for the Cancel and Request variants only.
+    // helper fn for the Cancel and Request variants only.
     fn decode_triple_variant(src: &mut bytes::BytesMut) -> anyhow::Result<(u32, u32, u32)> {
         const TRIPLE_SIZE: usize = 3 * std::mem::size_of::<u32>();
         Self::bail_on_size_mismatch(src, TRIPLE_SIZE)?;
@@ -95,18 +114,19 @@ impl Decoder for PeerMessageCodec {
 
         let tag = src.get_u8();
         type PM = PeerMessage;
+
         let msg = match tag {
-            0 => PM::Choke,
-            1 => PM::Unchoke,
-            2 => PM::Interested,
-            3 => PM::NotInterested,
-            4 => {
+            PeerMessageTags::CHOKE => PM::Choke,
+            PeerMessageTags::UNCHOKE => PM::Unchoke,
+            PeerMessageTags::INTERERSTED => PM::Interested,
+            PeerMessageTags::NOT_INTERESTED => PM::NotInterested,
+            PeerMessageTags::HAVE => {
                 Self::bail_on_size_mismatch(&mut src, std::mem::size_of::<u32>())?;
                 PM::Have(src.get_u32())
             }
             // a panic shouldn't happen here as any amount of bytes is valid
-            5 => PM::Bitfield(src.to_vec()),
-            6 => {
+            PeerMessageTags::BITFIELD => PM::Bitfield(src.to_vec()),
+            PeerMessageTags::REQUEST => {
                 let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
 
                 PM::Request {
@@ -115,7 +135,7 @@ impl Decoder for PeerMessageCodec {
                     length,
                 }
             }
-            7 => {
+            PeerMessageTags::PIECE => {
                 Self::bail_on_size_mismatch(&mut src, 2 * std::mem::size_of::<u32>())?;
 
                 PM::Piece {
@@ -124,7 +144,7 @@ impl Decoder for PeerMessageCodec {
                     piece: src.to_vec(),
                 }
             }
-            8 => {
+            PeerMessageTags::CANCEL => {
                 let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
 
                 PM::Cancel {
@@ -133,7 +153,7 @@ impl Decoder for PeerMessageCodec {
                     length,
                 }
             }
-            _ => anyhow::bail!("invalid protocol tag for peer message: {}", tag),
+            invalid_tag => anyhow::bail!("invalid protocol tag for peer message: {}", invalid_tag),
         };
 
         Ok(Some(Some(msg)))
@@ -199,3 +219,5 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
         Ok(())
     }
 }
+
+pub type PeerFrames<T> = tokio_util::codec::Framed<T, PeerMessageCodec>;
