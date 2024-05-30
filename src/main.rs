@@ -14,10 +14,17 @@ use tracker::{
 use anyhow::Context;
 use futures::future::FutureExt;
 use metainfo::tracker_url::TrackerUrl;
-use peer_protocol::handshake::PeerHandshake;
+use peer_protocol::{
+    codec::{PeerMessage, PeerMessageCodec},
+    handshake::PeerHandshake,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracker::request::Requestable;
 use tracker::Announce;
+
+use futures::sink::SinkExt;
+use tokio_stream::StreamExt;
+use tokio_util::codec::Framed;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -44,8 +51,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let connections = response
         .peer_addreses
         .iter()
-        .map(|addr| tokio::net::TcpStream::connect(addr).boxed())
-        .into_iter();
+        .map(|addr| tokio::net::TcpStream::connect(addr).boxed());
 
     //  CHECK: does the remainint futures being forgotten cause problems.
     let (mut connection, _remaining_futures) = futures::future::select_ok(connections)
@@ -71,8 +77,59 @@ async fn main() -> Result<(), anyhow::Error> {
         "write handshake bytes to peer {:?}",
         &connection.peer_addr()
     ))?;
-    handshake = PeerHandshake::from_bytes(bytes);
-    dbg!(&handshake);
+    let handshake = PeerHandshake::from_bytes(bytes);
+
+    let mut framed_connection = Framed::new(connection, PeerMessageCodec);
+    let msg = framed_connection.next().await;
+    dbg!(&msg);
+    framed_connection
+        .send(PeerMessage::Unchoke)
+        .await
+        .context("sending unchoke")?;
+    framed_connection
+        .send(PeerMessage::Interested)
+        .await
+        .context("sending interested")?;
+
+    let req_mesg = PeerMessage::Request {
+        index: 1,
+        begin: 0,
+        length: 1 << 5,
+    };
+    let piece_mesg = loop {
+        // unexpectedly finished
+        let msg = framed_connection
+            .next()
+            .await
+            .ok_or_else(|| anyhow::Error::msg("peer closed connection without giving a piece."))?;
+
+        // keep alive
+        let msg = match msg? {
+            Some(msg) => msg,
+            None => continue,
+        };
+
+        dbg!(&msg);
+        type PM = PeerMessage;
+        match msg {
+            PM::Choke => {
+                continue;
+            }
+            PM::Unchoke => {
+                framed_connection
+                    .send(req_mesg.clone())
+                    .await
+                    .context("sending request for index 1")?;
+
+                continue;
+            }
+            piece @ PM::Piece { .. } => {
+                break piece;
+            }
+
+            _ => panic!("dw bout it for now."),
+        }
+    };
 
     Ok(())
 }

@@ -92,29 +92,40 @@ impl Decoder for PeerMessageCodec {
             return Ok(None);
         }
 
-        let len_header = src.get_u32() as usize;
+        let len_header = {
+            // peek at the length and see if enough data has been read. otherwise do not advance
+            // the cursor.
+            let mut len_header: [u8; 4] = [0; 4];
+            len_header.copy_from_slice(&src[0..4]);
+            let len_header = u32::from_be_bytes(len_header) as usize;
+
+            // prevent malicious peers (if they exist) from hogging us.
+            if len_header > Self::MAX_SIZE {
+                anyhow::bail!(
+                    "frames of size {} (>2 MiB) prevented from being decoded.",
+                    len_header
+                )
+            }
+
+            if src.len() < len_header {
+                src.reserve(len_header);
+                return Ok(None);
+            }
+
+            src.advance(LEN_HEADER_SIZE);
+
+            len_header
+        };
+
+        // enough data has been read for a full frame, now it is safe to to use get methods.
         if len_header == 0 {
             // return Some(None) when message was a keepalive
             return Ok(Some(None));
-        }
-
-        // prevent malicious peers (if they exist) from hogging us.
-        if len_header > Self::MAX_SIZE {
-            anyhow::bail!(
-                "frames of size {} (>2 MiB) prevented from being decoded.",
-                len_header
-            )
-        }
-
-        if src.len() < len_header {
-            src.reserve(len_header);
-            return Ok(None);
         }
         let mut src = src.split_to(len_header);
 
         let tag = src.get_u8();
         type PM = PeerMessage;
-
         let msg = match tag {
             PeerMessageTags::CHOKE => PM::Choke,
             PeerMessageTags::UNCHOKE => PM::Unchoke,
