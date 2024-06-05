@@ -80,7 +80,7 @@ impl PeerMessageCodec {
 }
 
 impl Decoder for PeerMessageCodec {
-    type Item = Option<PeerMessage>;
+    type Item = PeerMessage;
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> anyhow::Result<Option<Self::Item>> {
@@ -116,11 +116,11 @@ impl Decoder for PeerMessageCodec {
 
             len_header
         };
-
         // enough data has been read for a full frame, now it is safe to to use get methods.
+
         if len_header == 0 {
-            // return Some(None) when message was a keepalive
-            return Ok(Some(None));
+            // message was a keep alive
+            return Ok(None);
         }
         let mut src = src.split_to(len_header);
 
@@ -167,7 +167,7 @@ impl Decoder for PeerMessageCodec {
             invalid_tag => anyhow::bail!("invalid protocol tag for peer message: {}", invalid_tag),
         };
 
-        Ok(Some(Some(msg)))
+        Ok(Some(msg))
     }
 }
 
