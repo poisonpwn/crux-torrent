@@ -96,20 +96,18 @@ async fn main() -> Result<(), anyhow::Error> {
         begin: 0,
         length: 1 << 5,
     };
-    let piece_mesg = loop {
+
+    //FIXME: fix shitty temp test code dw bout it for now, write integration tests.
+    let _piece_mesg = loop {
         // unexpectedly finished
-        let msg = framed_connection
-            .next()
-            .await
-            .ok_or_else(|| anyhow::Error::msg("peer closed connection without giving a piece."))?;
+        let msg = match framed_connection.next().await {
+            Some(res) => res,
+            None => anyhow::bail!("peer closed connection before giving a piece"),
+        }?;
 
         // keep alive
-        let msg = match msg? {
-            Some(msg) => msg,
-            None => continue,
-        };
-
         dbg!(&msg);
+
         type PM = PeerMessage;
         match msg {
             PM::Choke => {
@@ -127,7 +125,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 break piece;
             }
 
-            _ => panic!("dw bout it for now."),
+            // all this code in main should be nuked.
+            _ => panic!("peer shouldn't send anything other than these, but dw it for now."),
         }
     };
 
