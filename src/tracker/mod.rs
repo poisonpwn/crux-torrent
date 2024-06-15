@@ -9,11 +9,13 @@ use request::TrackerRequest;
 
 use self::response::{TrackerResponse, TrackerResponseResult};
 
+#[derive(Debug, Clone)]
 pub struct UdpTracker<'a> {
     client: &'a UdpSocket,
     announce_url: UdpUrl,
 }
 
+#[derive(Debug, Clone)]
 pub struct HttpTracker<'a> {
     client: &'a HttpClient,
     announce_url: HttpUrl,

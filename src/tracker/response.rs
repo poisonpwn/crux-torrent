@@ -22,10 +22,10 @@ pub enum TrackerResponseResult {
     },
 }
 
-impl Into<anyhow::Result<TrackerResponse>> for TrackerResponseResult {
-    fn into(self) -> anyhow::Result<TrackerResponse> {
+impl From<TrackerResponseResult> for anyhow::Result<TrackerResponse> {
+    fn from(value: TrackerResponseResult) -> Self {
         type TR = TrackerResponseResult;
-        match self {
+        match value {
             TR::Success(tracker_response) => Ok(tracker_response),
             TR::Failure { failure_reason } => {
                 anyhow::bail!(format!("{} (Tracker)", failure_reason))
