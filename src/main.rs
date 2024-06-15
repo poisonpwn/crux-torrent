@@ -3,28 +3,24 @@ mod metainfo;
 mod peer_protocol;
 mod tracker;
 
-use cli::Cli;
-
-use clap::Parser;
-use tracker::{
-    request::{PeerId, TrackerRequest},
-    HttpTracker,
-};
-
+use crate::torrent::PeerId;
 use anyhow::Context;
+use clap::Parser;
+use cli::Cli;
 use futures::future::FutureExt;
+use futures::SinkExt;
 use metainfo::tracker_url::TrackerUrl;
 use peer_protocol::{
     codec::{PeerMessage, PeerMessageCodec},
     handshake::PeerHandshake,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracker::request::Requestable;
-use tracker::Announce;
-
-use futures::sink::SinkExt;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
+use tracker::{
+    request::{Requestable, TrackerRequest},
+    Announce, HttpTracker,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -45,8 +41,6 @@ async fn main() -> Result<(), anyhow::Error> {
                 .await?
         }
     };
-
-    dbg!(&response);
 
     let connections = response
         .peer_addreses
@@ -78,18 +72,13 @@ async fn main() -> Result<(), anyhow::Error> {
         &connection.peer_addr()
     ))?;
     let handshake = PeerHandshake::from_bytes(bytes);
+    dbg!(&handshake);
 
     let mut framed_connection = Framed::new(connection, PeerMessageCodec);
     let msg = framed_connection.next().await;
     dbg!(&msg);
-    framed_connection
-        .send(PeerMessage::Unchoke)
-        .await
-        .context("sending unchoke")?;
-    framed_connection
-        .send(PeerMessage::Interested)
-        .await
-        .context("sending interested")?;
+    framed_connection.send(PeerMessage::Unchoke).await?;
+    framed_connection.send(PeerMessage::Interested).await?;
 
     let req_mesg = PeerMessage::Request {
         index: 1,
