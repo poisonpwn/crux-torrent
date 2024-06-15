@@ -1,6 +1,7 @@
 mod cli;
 mod metainfo;
 mod peer_protocol;
+mod torrent;
 mod tracker;
 
 use crate::torrent::PeerId;

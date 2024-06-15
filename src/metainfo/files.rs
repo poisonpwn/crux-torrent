@@ -1,4 +1,4 @@
-use crate::tracker::request::InfoHash;
+use crate::torrent::InfoHash;
 use crate::tracker::request::Requestable;
 use serde::{
     de::{self, Visitor},

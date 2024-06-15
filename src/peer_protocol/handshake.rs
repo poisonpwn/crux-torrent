@@ -1,4 +1,4 @@
-use crate::tracker::request::{InfoHash, PeerId};
+use crate::torrent::{InfoHash, PeerId};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)] // makes sure the struct fields are arranged in the same order, there's also no padding
