@@ -37,7 +37,7 @@ impl PeerHandshake {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracker::request::{InfoHash, PeerId};
+    use crate::torrent::{InfoHash, PeerId};
     use rstest::*;
     const INFO_HASH: [u8; 20] = [0; 20];
     const PEER_ID_SUFFIX: [u8; PeerId::SUFFIX_LEN] = [7; PeerId::SUFFIX_LEN];

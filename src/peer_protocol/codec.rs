@@ -3,6 +3,8 @@ use tokio_util::{
     codec::{Decoder, Encoder},
 };
 
+use crate::torrent::Bitfield;
+
 struct PeerMessageTags;
 impl PeerMessageTags {
     // tags according to https://www.bittorrent.org/beps/bep_0003.html
@@ -25,7 +27,7 @@ pub enum PeerMessage {
     Interested = PeerMessageTags::INTERERSTED,
     NotInterested = PeerMessageTags::NOT_INTERESTED,
     Have(u32) = PeerMessageTags::HAVE,
-    Bitfield(Vec<u8>) = PeerMessageTags::BITFIELD,
+    Bitfield(Bitfield) = PeerMessageTags::BITFIELD,
     Request {
         index: u32,
         begin: u32,
@@ -136,7 +138,7 @@ impl Decoder for PeerMessageCodec {
                 PM::Have(src.get_u32())
             }
             // a panic shouldn't happen here as any amount of bytes is valid
-            PeerMessageTags::BITFIELD => PM::Bitfield(src.to_vec()),
+            PeerMessageTags::BITFIELD => PM::Bitfield(Bitfield::from_vec(src.to_vec())),
             PeerMessageTags::REQUEST => {
                 let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
 
@@ -224,7 +226,7 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
                 dst.put_u32(TAG_LEN + bitfield.len() as u32);
                 dst.put_u8(tag);
 
-                dst.put(bitfield.as_slice());
+                dst.put(bitfield.as_raw_slice());
             }
         }
         Ok(())
