@@ -2,7 +2,6 @@ pub mod files;
 pub mod tracker_url;
 
 use serde::Deserialize;
-use serde_bencode;
 use std::fs;
 use std::path::Path;
 

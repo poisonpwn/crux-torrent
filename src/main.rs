@@ -35,8 +35,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
         // TODO: handle udp trackers, BEP: https://www.bittorrent.org/beps/bep_0015.html
-        TrackerUrl::UDP(udp_url) => todo!(),
-        TrackerUrl::HTTP(http_url) => {
+        TrackerUrl::Udp(udp_url) => todo!(),
+        TrackerUrl::Http(http_url) => {
             HttpTracker::new(&client, http_url)
                 .announce(&request)
                 .await?
@@ -48,15 +48,13 @@ async fn main() -> Result<(), anyhow::Error> {
         .iter()
         .map(|addr| tokio::net::TcpStream::connect(addr).boxed());
 
-    //  CHECK: does the remainint futures being forgotten cause problems.
+    //  CHECK: does the remaining futures being forgotten cause problems.
     let (mut connection, _remaining_futures) = futures::future::select_ok(connections)
         .await
         .context("all peers failed to connect")?;
 
     let info_hash = metainfo.file_info.get_info_hash()?;
-    let mut handshake = PeerHandshake::new(info_hash, peer_id.clone());
-
-    let mut bytes = handshake.into_bytes();
+    let mut bytes = PeerHandshake::new(info_hash, peer_id.clone()).into_bytes();
     dbg!(bytes
         .clone()
         .iter()
@@ -91,9 +89,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let _piece_mesg = loop {
         // unexpectedly finished
         let msg = match framed_connection.next().await {
-            Some(res) => res,
+            Some(msg_res) => msg_res?,
             None => anyhow::bail!("peer closed connection before giving a piece"),
-        }?;
+        };
 
         // keep alive
         dbg!(&msg);

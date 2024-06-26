@@ -9,8 +9,8 @@ pub struct HttpUrl(Url);
 
 #[derive(Debug, Clone)]
 pub enum TrackerUrl {
-    HTTP(HttpUrl),
-    UDP(UdpUrl),
+    Http(HttpUrl),
+    Udp(UdpUrl),
 }
 
 impl AsRef<str> for HttpUrl {
@@ -53,9 +53,9 @@ impl TrackerUrl {
     fn new(url: impl IntoUrl) -> anyhow::Result<Self> {
         let url = url.into_url()?;
         Ok(match url.scheme() {
-            "http" => Self::HTTP(HttpUrl(url)),
-            "udp" => Self::UDP(UdpUrl(url)),
-            scheme @ _ => anyhow::bail!(format!("unsupported scheme {:?} for tracker", scheme)),
+            "http" => Self::Http(HttpUrl(url)),
+            "udp" => Self::Udp(UdpUrl(url)),
+            scheme => anyhow::bail!(format!("unsupported scheme {:?} for tracker", scheme)),
         })
     }
 }
