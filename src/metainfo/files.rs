@@ -1,11 +1,7 @@
 use crate::torrent::InfoHash;
 use crate::tracker::request::Requestable;
-use serde::{
-    de::{self, Visitor},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use sha1_smol::Sha1;
-use static_str_ops::static_format;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct File {
@@ -28,8 +24,8 @@ pub enum FileInfo {
         #[serde(rename = "piece length")]
         piece_length: usize,
 
-        #[serde(serialize_with = "serde_bytes::serialize")]
-        pieces: FileHashes,
+        #[serde(with = "file_hashes_parser")]
+        pieces: Vec<FileHash>,
 
         #[serde(default)]
         private: Option<i64>,
@@ -46,9 +42,10 @@ pub enum FileInfo {
         #[serde(rename = "piece length")]
         piece_length: usize,
 
-        #[serde(serialize_with = "serde_bytes::serialize")]
-        pieces: FileHashes,
+        #[serde(with = "file_hashes_parser")]
+        pieces: Vec<FileHash>,
 
+        #[serde(default)]
         private: Option<i64>,
     },
 }
@@ -67,66 +64,67 @@ impl Requestable for FileInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct FileHashes(Vec<[u8; FileHashes::HASH_SIZE]>);
-impl FileHashes {
-    pub const HASH_SIZE: usize = 20;
-}
+pub type FileHash = [u8; 20];
 
-impl serde_bytes::Serialize for FileHashes {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.0.concat())
-    }
-}
+mod file_hashes_parser {
+    use super::FileHash;
+    use serde::de::{self, Visitor};
+    use static_str_ops::static_format;
+    const HASH_SIZE: usize = std::mem::size_of::<FileHash>();
 
-impl<'de> Deserialize<'de> for FileHashes {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<FileHash>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(FileHashes(deserializer.deserialize_bytes(FileHashVisitor)?))
-    }
-}
-
-struct FileHashVisitor;
-impl<'de> Visitor<'de> for FileHashVisitor {
-    type Value = Vec<[u8; FileHashes::HASH_SIZE]>;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str(static_format!(
-            "a byte sequence  whose length is a multiple of {}",
-            FileHashes::HASH_SIZE
-        ))
+        deserializer.deserialize_bytes(FileHashVisitor)
     }
 
-    fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+    pub fn serialize<S>(
+        file_hashes: impl AsRef<[FileHash]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
-        E: de::Error,
+        S: serde::Serializer,
     {
-        let n_bytes = bytes.len();
+        serde_bytes::serialize(&file_hashes.as_ref().concat(), serializer)
+    }
 
-        type FH = FileHashes;
-        if n_bytes % FH::HASH_SIZE != 0 {
-            return Err(E::custom(static_format!(
-                "file hash pieces should be a multiple of length {}",
-                FH::HASH_SIZE
-            )));
+    struct FileHashVisitor;
+    impl<'de> Visitor<'de> for FileHashVisitor {
+        type Value = Vec<FileHash>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(static_format!(
+                "a byte sequence whose length is a multiple of {}",
+                HASH_SIZE
+            ))
         }
 
-        //TODO: use array_chunks::<20> instead of chunks_exact when it becomes stable.
-        let file_hash_slices = bytes
-            .chunks_exact(FH::HASH_SIZE)
-            .map(|chunk| {
-                chunk.try_into().expect(static_format!(
-                    "chunks_exact returns only chunks which are length {}",
-                    FH::HASH_SIZE
-                ))
-            })
-            .collect();
+        fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let n_bytes = bytes.len();
 
-        Ok(file_hash_slices)
+            if n_bytes % HASH_SIZE != 0 {
+                return Err(E::custom(static_format!(
+                    "file hash pieces should be a multiple of length {}",
+                    HASH_SIZE
+                )));
+            }
+
+            //TODO: use array_chunks::<20> instead of chunks_exact when it becomes stable.
+            let file_hash_slices = bytes
+                .chunks_exact(HASH_SIZE)
+                .map(|chunk| {
+                    chunk.try_into().expect(static_format!(
+                        "chunks_exact returns only chunks which are length {}",
+                        HASH_SIZE
+                    ))
+                })
+                .collect();
+
+            Ok(file_hash_slices)
+        }
     }
 }
