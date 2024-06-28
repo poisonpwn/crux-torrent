@@ -1,7 +1,7 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::{
     bytes::{self, Buf, BufMut},
-    codec::{Decoder, Encoder},
+    codec::{length_delimited::LengthDelimitedCodec, Decoder, Encoder, Framed},
 };
 
 use crate::torrent::Bitfield;
@@ -56,10 +56,20 @@ impl PeerMessage {
     }
 }
 
-pub struct PeerMessageCodec;
+pub struct PeerMessageCodec {
+    inner_codec: LengthDelimitedCodec,
+}
 
 impl PeerMessageCodec {
-    const MAX_SIZE: usize = 2 * (1 << 20);
+    const MAX_FRAME_SIZE: usize = 2 * (1 << 20);
+
+    pub fn new() -> Self {
+        Self {
+            inner_codec: LengthDelimitedCodec::builder()
+                .max_frame_length(Self::MAX_FRAME_SIZE)
+                .new_codec(),
+        }
+    }
 
     // bail if the peer sends invalid(less than what is required) length for the particular variant.
     fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
@@ -87,47 +97,18 @@ impl Decoder for PeerMessageCodec {
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> anyhow::Result<Option<Self::Item>> {
-        const LEN_HEADER_SIZE: usize = std::mem::size_of::<u32>();
-
-        if src.len() < LEN_HEADER_SIZE {
-            // return None to signify that more bytes need to be read for current frame to be
-            // decoded.
-            return Ok(None);
-        }
-
-        let len_header = {
-            // peek at the length and see if enough data has been read. otherwise do not advance
-            // the cursor.
-            let mut len_header: [u8; 4] = [0; 4];
-            len_header.copy_from_slice(&src[0..4]);
-            let len_header = u32::from_be_bytes(len_header) as usize;
-
-            // prevent malicious peers (if they exist) from hogging us.
-            if len_header > Self::MAX_SIZE {
-                anyhow::bail!(
-                    "frames of size {} (>2 MiB) prevented from being decoded.",
-                    len_header
-                )
-            }
-
-            if src.len() < len_header {
-                src.reserve(len_header);
-                return Ok(None);
-            }
-
-            src.advance(LEN_HEADER_SIZE);
-
-            len_header
+        let mut frame = match self.inner_codec.decode(src)? {
+            Some(frame) => frame,
+            None => return Ok(None),
         };
-        // enough data has been read for a full frame, now it is safe to to use get methods.
 
-        if len_header == 0 {
-            // message was a keep alive
+        // message was a keepalive (length = 0)
+        if frame.is_empty() {
             return Ok(None);
         }
-        let mut src = src.split_to(len_header);
 
-        let tag = src.get_u8();
+        let tag = frame.get_u8();
+
         type PM = PeerMessage;
         let msg = match tag {
             PeerMessageTags::CHOKE => PM::Choke,
@@ -135,13 +116,13 @@ impl Decoder for PeerMessageCodec {
             PeerMessageTags::INTERERSTED => PM::Interested,
             PeerMessageTags::NOT_INTERESTED => PM::NotInterested,
             PeerMessageTags::HAVE => {
-                Self::bail_on_size_mismatch(&mut src, std::mem::size_of::<u32>())?;
-                PM::Have(src.get_u32())
+                Self::bail_on_size_mismatch(&mut frame, std::mem::size_of::<u32>())?;
+                PM::Have(frame.get_u32())
             }
             // a panic shouldn't happen here as any amount of bytes is valid
-            PeerMessageTags::BITFIELD => PM::Bitfield(Bitfield::from_vec(src.to_vec())),
+            PeerMessageTags::BITFIELD => PM::Bitfield(Bitfield::from_vec(frame.to_vec())),
             PeerMessageTags::REQUEST => {
-                let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
+                let (index, begin, length) = Self::decode_triple_variant(&mut frame)?;
 
                 PM::Request {
                     index,
@@ -150,16 +131,16 @@ impl Decoder for PeerMessageCodec {
                 }
             }
             PeerMessageTags::PIECE => {
-                Self::bail_on_size_mismatch(&mut src, 2 * std::mem::size_of::<u32>())?;
+                Self::bail_on_size_mismatch(&mut frame, 2 * std::mem::size_of::<u32>())?;
 
                 PM::Piece {
-                    index: src.get_u32(),
-                    begin: src.get_u32(),
-                    piece: src.to_vec(),
+                    index: frame.get_u32(),
+                    begin: frame.get_u32(),
+                    piece: frame.to_vec(),
                 }
             }
             PeerMessageTags::CANCEL => {
-                let (index, begin, length) = Self::decode_triple_variant(&mut src)?;
+                let (index, begin, length) = Self::decode_triple_variant(&mut frame)?;
 
                 PM::Cancel {
                     index,
@@ -234,11 +215,11 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
     }
 }
 
-pub type PeerFrames<T> = tokio_util::codec::Framed<T, PeerMessageCodec>;
+pub type PeerFrames<T> = Framed<T, PeerMessageCodec>;
 
 pub fn upgrade_stream<T>(stream: T) -> PeerFrames<T>
 where
     T: AsyncRead + AsyncWrite,
 {
-    PeerFrames::new(stream, PeerMessageCodec)
+    PeerFrames::new(stream, PeerMessageCodec::new())
 }
