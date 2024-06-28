@@ -1,3 +1,4 @@
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::{
     bytes::{self, Buf, BufMut},
     codec::{Decoder, Encoder},
@@ -58,7 +59,7 @@ impl PeerMessage {
 pub struct PeerMessageCodec;
 
 impl PeerMessageCodec {
-    const MAX_SIZE: usize = 2 * (1 << 10);
+    const MAX_SIZE: usize = 2 * (1 << 20);
 
     // bail if the peer sends invalid(less than what is required) length for the particular variant.
     fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
@@ -234,3 +235,10 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
 }
 
 pub type PeerFrames<T> = tokio_util::codec::Framed<T, PeerMessageCodec>;
+
+pub fn upgrade_stream<T>(stream: T) -> PeerFrames<T>
+where
+    T: AsyncRead + AsyncWrite,
+{
+    PeerFrames::new(stream, PeerMessageCodec)
+}
