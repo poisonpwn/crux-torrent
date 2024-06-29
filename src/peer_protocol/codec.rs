@@ -50,13 +50,14 @@ impl PeerMessage {
     pub fn tag(&self) -> u8 {
         // SAFETY: because PeerMessage is a repr(u8) its also repr(C) and the first byte(u8) represents
         // the enum tag (dereferencing the *self casted to a *u8 gives first byte).
-        // taken from std::mem::discriminant docs.
+        // taken from `std::mem::discriminant` docs.
         // https://doc.rust-lang.org/std/mem/fn.discriminant.html
         unsafe { *<*const _>::from(self).cast::<u8>() }
     }
 }
 
 pub struct PeerMessageCodec {
+    // codec only used on decode, to decode length delimited frames.
     inner_codec: LengthDelimitedCodec,
 }
 
@@ -71,7 +72,7 @@ impl PeerMessageCodec {
         }
     }
 
-    // bail if the peer sends invalid(less than what is required) length for the particular variant.
+    // helper method to bail if the peer sends invalid (less than what is required) payload for the particular variant.
     fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
         let len = src.len();
         if len < min_size {
@@ -84,7 +85,7 @@ impl PeerMessageCodec {
         Ok(())
     }
 
-    // helper fn for the Cancel and Request variants only.
+    // helper method for the Cancel and Request variants only.
     fn decode_triple_variant(src: &mut bytes::BytesMut) -> anyhow::Result<(u32, u32, u32)> {
         const TRIPLE_SIZE: usize = 3 * std::mem::size_of::<u32>();
         Self::bail_on_size_mismatch(src, TRIPLE_SIZE)?;
@@ -158,6 +159,8 @@ impl Decoder for PeerMessageCodec {
 impl Encoder<PeerMessage> for PeerMessageCodec {
     type Error = anyhow::Error;
     fn encode(&mut self, item: PeerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        // inner codec is not used as it would require allocating another BytesMut
+        // instead we write directly to the dst buffer of the Framed instance.
         const TAG_LEN: u32 = std::mem::size_of::<u8>() as u32;
         let tag = item.tag();
 
