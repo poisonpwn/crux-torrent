@@ -1,4 +1,9 @@
+pub mod download_worker;
+
 mod comms;
+mod descriptor;
+mod progress;
+mod worker_fsm;
 
 pub use comms::*;
 
