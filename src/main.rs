@@ -6,27 +6,33 @@ mod prelude;
 mod torrent;
 mod tracker;
 
-use crate::torrent::PeerId;
-use anyhow::Context;
 use clap::Parser;
 use cli::Cli;
-use futures::future::FutureExt;
-use futures::SinkExt;
-use metainfo::tracker_url::TrackerUrl;
-use peer_protocol::{
-    codec::{PeerMessage, PeerMessageCodec},
-    handshake::PeerHandshake,
+use prelude::*;
+
+use tokio::sync::mpsc;
+use tokio::task;
+use tracing::Level;
+
+use metainfo::{files::FileInfo, tracker_url::TrackerUrl};
+use peers::{
+    download_worker::{PeerAddr, PeerDownloadWorker},
+    PeerAlerts, PeerCommands, PieceRequestInfo,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_stream::StreamExt;
-use tokio_util::codec::Framed;
+use torrent::{Bitfield, InfoHash, PeerId};
+
+use std::net::SocketAddrV4;
+
 use tracker::{
     request::{Requestable, TrackerRequest},
     Announce, HttpTracker,
 };
 
-use prelude::*;
-use tracing::Level;
+struct PeerSession {
+    peer_addr: std::net::SocketAddrV4,
+    bitfield: Bitfield,
+    commands_tx: mpsc::Sender<PeerCommands>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -40,9 +46,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let peer_id = PeerId::random();
     let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
-
-    dbg!(&request);
-
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
         // TODO: handle udp trackers, BEP: https://www.bittorrent.org/beps/bep_0015.html
@@ -53,81 +56,115 @@ async fn main() -> Result<(), anyhow::Error> {
                 .await?
         }
     };
+    let piece_index = 0;
+    let (length, hash) = match &metainfo.file_info {
+        FileInfo::MultiFile {
+            piece_length,
+            pieces,
+            ..
+        } => (*piece_length as u32, pieces[piece_index]),
+        FileInfo::SingleFile {
+            piece_length,
+            pieces,
+            ..
+        } => (*piece_length as u32, pieces[piece_index]),
+    };
 
-    let connections = response
-        .peer_addreses
-        .iter()
-        .map(|addr| tokio::net::TcpStream::connect(addr).boxed());
-
-    //  CHECK: does the remaining futures being forgotten cause problems.
-    let (mut connection, _remaining_futures) = futures::future::select_ok(connections)
-        .await
-        .context("all peers failed to connect")?;
+    let piece_request_info = PieceRequestInfo::new(piece_index, length, hash);
 
     let info_hash = metainfo.file_info.get_info_hash()?;
-    let mut bytes = PeerHandshake::new(info_hash, peer_id.clone()).into_bytes();
-    dbg!(bytes
-        .clone()
-        .iter()
-        .map(|byte| *byte as char)
-        .collect::<Vec<_>>());
+    let mut join_set = task::JoinSet::<anyhow::Result<()>>::new();
 
-    connection.write_all(&bytes).await.context(format!(
-        "write handshake bytes to peer {:?}",
-        &connection.peer_addr()
-    ))?;
+    let (alerts_tx, alerts_rx) = mpsc::channel::<PeerAlerts>(100);
+    let mut abort_handles = Vec::new();
+    for addr in &response.peer_addreses {
+        let addr = *addr;
+        let info_hash = info_hash.clone();
+        let peer_id = peer_id.clone();
+        let alerts_channel = alerts_tx.clone();
 
-    connection.read_exact(&mut bytes).await.context(format!(
-        "write handshake bytes to peer {:?}",
-        &connection.peer_addr()
-    ))?;
-    let handshake = PeerHandshake::from_bytes(bytes);
-    dbg!(&handshake);
+        let handle = join_set.spawn(spawn_peer(addr, alerts_channel, info_hash, peer_id));
 
-    let mut framed_connection = Framed::new(connection, PeerMessageCodec);
-    let msg = framed_connection.next().await;
-    dbg!(&msg);
-    framed_connection.send(PeerMessage::Unchoke).await?;
-    framed_connection.send(PeerMessage::Interested).await?;
+        abort_handles.push(handle);
+    }
 
-    let req_mesg = PeerMessage::Request {
-        index: 1,
-        begin: 0,
-        length: 1 << 5,
-    };
+    let mut engine_handle = task::spawn(engine(alerts_rx, piece_request_info));
+    loop {
+        tokio::select! {
+            Some(result) = join_set.join_next() => {
+                eprintln!("{:?}", result);
+            }
 
-    //FIXME: fix shitty temp test code dw bout it for now, write integration tests.
-    let _piece_mesg = loop {
-        // unexpectedly finished
-        let msg = match framed_connection.next().await {
-            Some(msg_res) => msg_res?,
-            None => anyhow::bail!("peer closed connection before giving a piece"),
+            _ = &mut engine_handle => {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[instrument(
+    level = "info",
+    name = "peer worker",
+    fields(peer = %peer_addr),
+    skip_all
+)]
+async fn spawn_peer(
+    peer_addr: SocketAddrV4,
+    alerts_channel: mpsc::Sender<PeerAlerts>,
+    info_hash: InfoHash,
+    peer_id: PeerId,
+) -> anyhow::Result<()> {
+    let connx = PeerAddr::new(peer_addr);
+    let mut worker =
+        PeerDownloadWorker::init_from(connx.handshake(info_hash, peer_id).await?, alerts_channel)
+            .await?;
+    worker.start_peer_event_loop().await?;
+    Ok(())
+}
+
+#[instrument(level = "info", name = "engine", skip(alerts_rx))]
+async fn engine(
+    mut alerts_rx: mpsc::Receiver<PeerAlerts>,
+    request_info: PieceRequestInfo,
+) -> anyhow::Result<()> {
+    let mut peers_listen = Vec::new();
+    loop {
+        let alert = match alerts_rx.recv().await {
+            Some(alert) => alert,
+            None => anyhow::bail!("all peers closed down"),
         };
 
-        // keep alive
-        dbg!(&msg);
-
-        type PM = PeerMessage;
-        match msg {
-            PM::Choke => {
-                continue;
+        type PA = PeerAlerts;
+        match alert {
+            PA::InitPeer {
+                peer_addr,
+                bitfield,
+                commands_tx,
+            } => {
+                let span = info_span!("processing init from {peer}", peer = peer_addr.to_string());
+                let _gaurd = span.enter();
+                info!("received init peer");
+                if bitfield[request_info.index] {
+                    commands_tx
+                        .send(PeerCommands::DownloadPiece(request_info.clone()))
+                        .await?;
+                };
+                peers_listen.push(PeerSession {
+                    peer_addr,
+                    bitfield,
+                    commands_tx,
+                });
             }
-            PM::Unchoke => {
-                framed_connection
-                    .send(req_mesg.clone())
-                    .await
-                    .context("sending request for index 1")?;
-
-                continue;
+            PA::DonePiece {
+                piece_index,
+                piece: _,
+            } => {
+                info!(piece_index, "received piece done");
+                break;
             }
-            piece @ PM::Piece { .. } => {
-                break piece;
-            }
-
-            // all this code in main should be nuked.
-            _ => panic!("peer shouldn't send anything other than these, but dw it for now."),
+            _ => todo!(),
         }
-    };
-
+    }
     Ok(())
 }
