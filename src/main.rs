@@ -1,6 +1,7 @@
 mod cli;
 mod metainfo;
 mod peer_protocol;
+mod prelude;
 mod torrent;
 mod tracker;
 
@@ -23,10 +24,19 @@ use tracker::{
     Announce, HttpTracker,
 };
 
+use prelude::*;
+use tracing::Level;
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .pretty()
+        .with_target(false)
+        .init();
     let matches = Cli::parse();
     let metainfo = metainfo::Metainfo::from_bencode_file(matches.source)?;
+
     let peer_id = PeerId::random();
     let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
 
