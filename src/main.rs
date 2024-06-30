@@ -1,6 +1,7 @@
 mod cli;
 mod metainfo;
 mod peer_protocol;
+mod peers;
 mod prelude;
 mod torrent;
 mod tracker;
