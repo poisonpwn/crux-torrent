@@ -56,6 +56,7 @@ impl PeerMessage {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PeerMessageCodec {
     // codec only used on decode, to decode length delimited frames.
     inner_codec: LengthDelimitedCodec,
