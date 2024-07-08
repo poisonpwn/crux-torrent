@@ -24,8 +24,8 @@ pub enum FileInfo {
         #[serde(rename = "piece length")]
         piece_length: usize,
 
-        #[serde(with = "file_hashes_parser")]
-        pieces: Vec<FileHash>,
+        #[serde(with = "piece_hashes_parser")]
+        pieces: Vec<PieceHash>,
 
         #[serde(default)]
         private: Option<i64>,
@@ -42,8 +42,8 @@ pub enum FileInfo {
         #[serde(rename = "piece length")]
         piece_length: usize,
 
-        #[serde(with = "file_hashes_parser")]
-        pieces: Vec<FileHash>,
+        #[serde(with = "piece_hashes_parser")]
+        pieces: Vec<PieceHash>,
 
         #[serde(default)]
         private: Option<i64>,
@@ -64,34 +64,34 @@ impl Requestable for FileInfo {
     }
 }
 
-pub type FileHash = [u8; 20];
+pub type PieceHash = [u8; 20];
 
-mod file_hashes_parser {
-    use super::FileHash;
+mod piece_hashes_parser {
+    use super::PieceHash;
     use serde::de::{self, Visitor};
     use static_str_ops::static_format;
-    const HASH_SIZE: usize = std::mem::size_of::<FileHash>();
+    const HASH_SIZE: usize = std::mem::size_of::<PieceHash>();
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<FileHash>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<PieceHash>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_bytes(FileHashVisitor)
+        deserializer.deserialize_bytes(PieceHashVisitor)
     }
 
     pub fn serialize<S>(
-        file_hashes: impl AsRef<[FileHash]>,
+        piece_hashes: impl AsRef<[PieceHash]>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serde_bytes::serialize(&file_hashes.as_ref().concat(), serializer)
+        serde_bytes::serialize(&piece_hashes.as_ref().concat(), serializer)
     }
 
-    struct FileHashVisitor;
-    impl<'de> Visitor<'de> for FileHashVisitor {
-        type Value = Vec<FileHash>;
+    struct PieceHashVisitor;
+    impl<'de> Visitor<'de> for PieceHashVisitor {
+        type Value = Vec<PieceHash>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str(static_format!(
@@ -108,13 +108,13 @@ mod file_hashes_parser {
 
             if n_bytes % HASH_SIZE != 0 {
                 return Err(E::custom(static_format!(
-                    "file hash pieces should be a multiple of length {}",
+                    "piece hash pieces should be a multiple of length {}",
                     HASH_SIZE
                 )));
             }
 
             //TODO: use array_chunks::<20> instead of chunks_exact when it becomes stable.
-            let file_hash_slices = bytes
+            let piece_hash_slices = bytes
                 .chunks_exact(HASH_SIZE)
                 .map(|chunk| {
                     chunk.try_into().expect(static_format!(
@@ -124,7 +124,7 @@ mod file_hashes_parser {
                 })
                 .collect();
 
-            Ok(file_hash_slices)
+            Ok(piece_hash_slices)
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::metainfo::files::FileHash;
+use crate::metainfo::files::PieceHash;
 use crate::peer_protocol::codec::PeerMessage;
 use crate::prelude::*;
 use futures::SinkExt;
@@ -14,7 +14,7 @@ pub enum WorkerState {
     WaitingforPiece {
         index: PieceIndex,
         download_progress: PieceDownloadProgress,
-        hash: FileHash,
+        hash: PieceHash,
         piece: Vec<u8>,
     },
     Idle,

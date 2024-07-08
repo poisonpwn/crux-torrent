@@ -3,17 +3,17 @@ use crate::Bitfield;
 use std::net::SocketAddrV4;
 use tokio::sync::mpsc;
 
-use crate::metainfo::files::FileHash;
+use crate::metainfo::files::PieceHash;
 
 #[derive(Debug, Clone)]
 pub struct PieceRequestInfo {
     pub index: PieceIndex,
     pub length: u32,
-    pub hash: FileHash,
+    pub hash: PieceHash,
 }
 
 impl PieceRequestInfo {
-    pub fn new(index: PieceIndex, length: PieceLength, hash: FileHash) -> Self {
+    pub fn new(index: PieceIndex, length: PieceLength, hash: PieceHash) -> Self {
         Self {
             index,
             length,
