@@ -90,7 +90,6 @@ impl WorkerState {
                 }
 
                 tokio::select! {
-                    // handle peer messages, abstracting this out to a function is kinda hard.
                     msg = peer_stream.next() => {
                         let msg = match msg {
                             Some(msg) => msg?,
@@ -186,7 +185,12 @@ impl WorkerState {
     async fn handle_peer_message(
         msg: PeerMessage,
         curr_piece_index: usize,
-        WorkerStateDescriptor { peer_is_choked, .. }: &mut WorkerStateDescriptor,
+        WorkerStateDescriptor {
+            peer_is_choked,
+            peer_addr,
+            alerts_tx,
+            ..
+        }: &mut WorkerStateDescriptor,
         piece: &mut Vec<u8>,
         download_progress: &mut PieceDownloadProgress,
     ) -> anyhow::Result<()> {
@@ -207,7 +211,7 @@ impl WorkerState {
                 begin,
                 piece: block,
             } => {
-                let block_span = debug_span!("handle block mesg", begin, index = recv_index);
+                let block_span = debug_span!("handle block message", begin, index = recv_index);
                 let _gaurd = block_span.enter();
 
                 info!("received block");
@@ -221,13 +225,30 @@ impl WorkerState {
                 piece.extend(block);
                 debug!(new_piece_length = piece.len());
             }
+            PM::Have(piece_index) => {
+                let span = debug_span!("handle have message", piece_index);
+                let _guard = span.enter();
+                info!("received have message");
 
-            PM::Have(_)
-            | PM::Cancel { .. }
-            | PM::Bitfield(_)
-            | PM::NotInterested
-            | PM::Interested
-            | PM::Request { .. } => unimplemented!(),
+                info!("sending update bitfield to engine");
+                alerts_tx
+                    .send(PeerAlerts::UpdateBitfield {
+                        has_piece: piece_index as usize,
+                        peer_addr: *peer_addr,
+                    })
+                    .await?
+            }
+            PM::Bitfield(_) => {
+                warn!("bitfield message received after first message");
+            }
+
+            mesg
+            @ (PM::Cancel { .. } | PM::NotInterested | PM::Interested | PM::Request { .. }) => {
+                warn!(
+                    "received downloader side messages from peer while in inbound mode, {:?}",
+                    mesg
+                );
+            }
         }
         Ok(())
     }
