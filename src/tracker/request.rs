@@ -64,7 +64,7 @@ impl TrackerRequest {
                 // we don't need to percent encode again as string fields are alphanumeric.
                 &mut format!("{}={}", first_key, first_val),
                 |output: &mut String, (key, val)| {
-                    output.extend(["&", key.as_ref(), "=", val.as_ref()]);
+                    output.extend(["&", key, "=", val.as_ref()]);
                     output
                 },
             )

@@ -37,12 +37,14 @@ impl UdpUrl {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Url> for HttpUrl {
     fn into(self) -> Url {
         self.into_inner()
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Url> for UdpUrl {
     fn into(self) -> Url {
         self.into_inner()
