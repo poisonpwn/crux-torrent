@@ -1,8 +1,8 @@
 use super::files::FileInfo;
 use super::url::TrackerUrl;
 use serde::Deserialize;
-use std::fs;
 use std::path::Path;
+use tokio::fs;
 
 #[derive(Debug, Deserialize)]
 pub struct Metainfo {
@@ -31,8 +31,8 @@ pub struct Metainfo {
 }
 
 impl Metainfo {
-    pub fn from_bencode_file(file: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let file_contents = fs::read(file)?;
+    pub async fn from_bencode_file(file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let file_contents = fs::read(file).await?;
         let metainfo: Metainfo =
             serde_bencode::from_bytes(&file_contents).map_err(anyhow::Error::msg)?;
         Ok(metainfo)

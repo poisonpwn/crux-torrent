@@ -42,7 +42,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_target(false)
         .init();
     let matches = Cli::parse();
-    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source)?;
+    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source).await?;
 
     let peer_id = PeerId::random();
     let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
