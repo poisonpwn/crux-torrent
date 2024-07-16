@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task;
 use tracing::Level;
 
-use metainfo::{files::FileInfo, url::TrackerUrl};
+use metainfo::{files::DownloadInfo, url::TrackerUrl};
 use peers::{
     download_worker::{PeerAddr, PeerDownloadWorker},
     PeerAlerts, PeerCommands, PieceRequestInfo,
@@ -58,12 +58,12 @@ async fn main() -> Result<(), anyhow::Error> {
     };
     let piece_index = 0;
     let (length, hash) = match &metainfo.file_info {
-        FileInfo::MultiFile {
+        DownloadInfo::MultiFile {
             piece_length,
             pieces,
             ..
         } => (*piece_length as u32, pieces[piece_index]),
-        FileInfo::SingleFile {
+        DownloadInfo::SingleFile {
             piece_length,
             pieces,
             ..

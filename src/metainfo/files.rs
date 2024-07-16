@@ -14,7 +14,7 @@ pub struct File {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
-pub enum FileInfo {
+pub enum DownloadInfo {
     MultiFile {
         #[serde(rename = "name")]
         dirname: String,
@@ -50,7 +50,7 @@ pub enum FileInfo {
     },
 }
 
-impl Requestable for FileInfo {
+impl Requestable for DownloadInfo {
     fn get_info_hash(&self) -> anyhow::Result<InfoHash> {
         let info_hash = serde_bencode::to_bytes(self)?;
         Ok(InfoHash::new(Sha1::from(info_hash).digest().bytes()))

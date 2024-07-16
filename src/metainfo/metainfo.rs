@@ -1,4 +1,4 @@
-use super::files::FileInfo;
+use super::files::DownloadInfo;
 use super::url::TrackerUrl;
 use serde::Deserialize;
 use std::path::Path;
@@ -9,7 +9,7 @@ pub struct Metainfo {
     pub announce: TrackerUrl,
 
     #[serde(rename = "info")]
-    pub file_info: FileInfo,
+    pub file_info: DownloadInfo,
 
     #[serde(default)]
     #[serde(rename = "announce-list")]
