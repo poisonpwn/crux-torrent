@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task;
 use tracing::Level;
 
-use metainfo::{files::FileInfo, tracker_url::TrackerUrl};
+use metainfo::{files::FileInfo, url::TrackerUrl};
 use peers::{
     download_worker::{PeerAddr, PeerDownloadWorker},
     PeerAlerts, PeerCommands, PieceRequestInfo,

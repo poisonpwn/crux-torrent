@@ -1,13 +1,14 @@
 pub mod files;
-pub mod tracker_url;
+pub mod url;
 
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
+use url::TrackerUrl;
 
 #[derive(Debug, Deserialize)]
 pub struct Metainfo {
-    pub announce: tracker_url::TrackerUrl,
+    pub announce: TrackerUrl,
 
     #[serde(rename = "info")]
     pub file_info: files::FileInfo,

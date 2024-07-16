@@ -1,7 +1,7 @@
 pub mod request;
 pub mod response;
 
-use crate::metainfo::tracker_url::{HttpUrl, UdpUrl};
+use crate::metainfo::url::{HttpUrl, UdpUrl};
 use reqwest::Client as HttpClient;
 use tokio::net::UdpSocket;
 
