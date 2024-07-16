@@ -22,12 +22,14 @@ impl PieceRequestInfo {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum PeerCommands {
     NotInterested,
     DownloadPiece(PieceRequestInfo),
     Shutdown,
 }
 
+#[derive(Debug, Clone)]
 pub enum PeerAlerts {
     InitPeer {
         peer_addr: SocketAddrV4,
