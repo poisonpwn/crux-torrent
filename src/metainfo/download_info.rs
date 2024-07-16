@@ -1,16 +1,8 @@
+use super::{FileInfo, PieceHash};
 use crate::torrent::InfoHash;
 use crate::tracker::request::Requestable;
 use serde::{Deserialize, Serialize};
 use sha1_smol::Sha1;
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct File {
-    pub path: Vec<String>,
-    pub length: usize,
-
-    #[serde(default)]
-    pub md5sum: Option<String>,
-}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -19,7 +11,7 @@ pub enum DownloadInfo {
         #[serde(rename = "name")]
         dirname: String,
 
-        files: Vec<File>,
+        files: Vec<FileInfo>,
 
         #[serde(rename = "piece length")]
         piece_length: usize,
@@ -64,10 +56,8 @@ impl Requestable for DownloadInfo {
     }
 }
 
-pub type PieceHash = [u8; 20];
-
 mod piece_hashes_parser {
-    use super::PieceHash;
+    use crate::metainfo::PieceHash;
     use serde::de::{self, Visitor};
     use static_str_ops::static_format;
     const HASH_SIZE: usize = std::mem::size_of::<PieceHash>();

@@ -1,4 +1,4 @@
-use crate::metainfo::files::PieceHash;
+use crate::metainfo::PieceHash;
 use crate::peer_protocol::codec::PeerMessage;
 use crate::prelude::*;
 use futures::SinkExt;

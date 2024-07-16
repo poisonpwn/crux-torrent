@@ -1,5 +1,5 @@
-use super::files::DownloadInfo;
 use super::url::TrackerUrl;
+use super::DownloadInfo;
 use serde::Deserialize;
 use std::path::Path;
 use tokio::fs;

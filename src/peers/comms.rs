@@ -3,7 +3,7 @@ use crate::Bitfield;
 use std::net::SocketAddrV4;
 use tokio::sync::mpsc;
 
-use crate::metainfo::files::PieceHash;
+use crate::metainfo::PieceHash;
 
 #[derive(Debug, Clone)]
 pub struct PieceRequestInfo {
