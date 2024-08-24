@@ -21,7 +21,7 @@ impl PeerMessageTags {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PeerMessage {
     Choke = PeerMessageTags::CHOKE,
     Unchoke = PeerMessageTags::UNCHOKE,
@@ -226,4 +226,245 @@ where
     T: AsyncRead + AsyncWrite,
 {
     PeerFrames::new(stream, PeerMessageCodec::new())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::SinkExt;
+    use rand::{
+        distributions::{Alphanumeric, Slice, Uniform},
+        Rng,
+    };
+    use std::collections::VecDeque;
+    use std::io::Cursor;
+    use tokio_stream::StreamExt;
+
+    type MesgTuple = (VecDeque<u8>, PeerMessage);
+
+    fn prepend_size(vec: &mut VecDeque<u8>) {
+        let len_bytes = (vec.len() as u32).to_be_bytes();
+        for byte in len_bytes.into_iter().rev() {
+            vec.push_front(byte);
+        }
+    }
+
+    fn choke() -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(0u8);
+
+        prepend_size(&mut frame);
+        (frame, PeerMessage::Choke)
+    }
+
+    fn unchoke() -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(1u8);
+
+        prepend_size(&mut frame);
+        (frame, PeerMessage::Unchoke)
+    }
+
+    fn interested() -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(2u8);
+
+        prepend_size(&mut frame);
+        (frame, PeerMessage::Interested)
+    }
+
+    fn not_interested() -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(3u8);
+
+        prepend_size(&mut frame);
+        (frame, PeerMessage::NotInterested)
+    }
+
+    fn have(rng: &mut impl Rng) -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(4u8);
+
+        let uniform_256 = rand::distributions::Uniform::<u32>::from(0..10000);
+        let have_piece_index: u32 = rng.sample(uniform_256);
+        frame.extend(have_piece_index.to_be_bytes());
+
+        prepend_size(&mut frame);
+        (frame, PeerMessage::Have(have_piece_index))
+    }
+
+    fn bitfield(rng: &mut impl Rng) -> MesgTuple {
+        let mut frame = VecDeque::new();
+
+        frame.push_back(5u8);
+
+        let bf_length = rng.sample(Uniform::from(1..=256));
+
+        // bitfield length should always be a multiple of eight to be encoded and decoded properly
+        // into u8 slices.
+        let bf: Bitfield = (0..(bf_length * 8))
+            .map(|_| rng.sample(Slice::new(&[true, false]).expect("slice is not empty")))
+            .collect();
+
+        frame.extend(bf.as_raw_slice());
+        prepend_size(&mut frame);
+
+        (frame, PeerMessage::Bitfield(bf))
+    }
+
+    fn request(rng: &mut impl Rng) -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(6u8);
+
+        let index: u32 = rng.sample(Uniform::from(0..10000));
+        let begin: u32 = rng.sample(Uniform::from(0..(2 * (1 << 30))));
+        let length: u32 = rng.sample(Uniform::from(0..(2 << 14)));
+
+        frame.extend(index.to_be_bytes());
+        frame.extend(begin.to_be_bytes());
+        frame.extend(length.to_be_bytes());
+
+        prepend_size(&mut frame);
+
+        (
+            frame,
+            PeerMessage::Request {
+                index,
+                begin,
+                length,
+            },
+        )
+    }
+
+    fn piece(rng: &mut impl Rng) -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(7u8);
+
+        let uniform = rand::distributions::Uniform::<u32>::from(0..100000);
+
+        let index = rng.sample(uniform);
+        let begin = rng.sample(uniform);
+        let piece: Vec<u8> = (0..1024).map(|_| rng.sample(Alphanumeric)).collect();
+
+        frame.extend(index.to_be_bytes());
+        frame.extend(begin.to_be_bytes());
+        frame.extend(&piece);
+
+        prepend_size(&mut frame);
+
+        (
+            frame,
+            PeerMessage::Piece {
+                index,
+                begin,
+                piece,
+            },
+        )
+    }
+
+    fn cancel(rng: &mut impl Rng) -> MesgTuple {
+        let mut frame = VecDeque::new();
+        frame.push_back(8u8);
+
+        let uniform_256 = rand::distributions::Uniform::<u32>::from(0..256);
+
+        let index = rng.sample(uniform_256);
+        let begin = rng.sample(uniform_256);
+        let length = rng.sample(uniform_256);
+
+        frame.extend(index.to_be_bytes());
+        frame.extend(begin.to_be_bytes());
+        frame.extend(length.to_be_bytes());
+
+        prepend_size(&mut frame);
+
+        (
+            frame,
+            PeerMessage::Cancel {
+                index,
+                begin,
+                length,
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn test_decode() {
+        let mut rng = rand::thread_rng();
+
+        let (buffer, test_decoded) = [
+            choke(),
+            unchoke(),
+            interested(),
+            not_interested(),
+            have(&mut rng),
+            bitfield(&mut rng),
+            request(&mut rng),
+            piece(&mut rng),
+            cancel(&mut rng),
+        ]
+        .into_iter()
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut buffer, mut mesg_vec), (frame, mesg)| {
+                buffer.extend(frame);
+                mesg_vec.push(mesg);
+                (buffer, mesg_vec)
+            },
+        );
+
+        let buffer = Cursor::new(buffer);
+        let mut decoder = upgrade_stream(buffer);
+
+        let decoded = {
+            let mut decoded = Vec::new();
+            while let Some(mesg) = decoder.next().await {
+                decoded.push(mesg.expect("io error shoudln't occur when using cursor buffer"));
+            }
+            decoded
+        };
+
+        assert_eq!(decoded.len(), test_decoded.len());
+
+        for (mesg, correct_mesg) in std::iter::zip(decoded, test_decoded) {
+            assert_eq!(mesg, correct_mesg);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_encode() {
+        let mut rng = rand::thread_rng();
+
+        let (test_buffer, messages) = [
+            choke(),
+            unchoke(),
+            interested(),
+            not_interested(),
+            have(&mut rng),
+            bitfield(&mut rng),
+            request(&mut rng),
+            piece(&mut rng),
+            cancel(&mut rng),
+        ]
+        .into_iter()
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut buffer, mut mesg_vec), (frame, mesg)| {
+                buffer.extend(frame);
+                mesg_vec.push(mesg);
+                (buffer, mesg_vec)
+            },
+        );
+
+        let mut encoder = upgrade_stream(Cursor::new(Vec::new()));
+
+        for mesg in messages {
+            encoder.send(mesg).await.unwrap();
+        }
+        let output_byte = encoder.write_buffer();
+
+        for (correct_byte, output_byte) in std::iter::zip(test_buffer, output_byte) {
+            assert_eq!(correct_byte, *output_byte);
+        }
+    }
 }
