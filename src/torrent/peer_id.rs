@@ -1,7 +1,7 @@
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct PeerId([u8; Self::PEER_ID_SIZE]);
@@ -39,5 +39,40 @@ impl PeerId {
                 .try_into()
                 .expect("can't fail as suffix is exactly SUFFIX_LEN long"),
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rand::distributions::Uniform;
+    use rand::prelude::*;
+    use rstest::rstest;
+
+    const PEER_ID_LEN: usize = 20;
+    const PREFIX: &[u8; 8] = b"-CX0000-";
+
+    #[rstest]
+    fn test_peer_id() {
+        let suffix = {
+            let mut suffix = [0u8; PEER_ID_LEN - PREFIX.len()];
+            let mut rng = rand::thread_rng();
+            let dist = Uniform::from(0..=u8::MAX);
+            suffix.iter_mut().for_each(|pos| {
+                *pos = rng.sample(dist);
+            });
+            suffix
+        };
+
+        let peer_id = PeerId::new(&suffix);
+        let peer_id_slice = peer_id.as_ref();
+
+        let test_peer_id_slice = {
+            let mut buffer = [0; 20];
+            buffer[..PREFIX.len()].copy_from_slice(PREFIX);
+            buffer[PREFIX.len()..].copy_from_slice(&suffix);
+            buffer
+        };
+        assert_eq!(peer_id_slice, &test_peer_id_slice);
     }
 }
