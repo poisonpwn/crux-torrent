@@ -16,9 +16,10 @@ use tracing::Level;
 
 use metainfo::{url::TrackerUrl, DownloadInfo};
 use peers::{
-    download_worker::{PeerAddr, PeerDownloadWorker},
+    download_worker::{PeerConnector, PeerDownloadWorker},
     PeerAlerts, PeerCommands, PieceRequestInfo,
 };
+use tokio::net::TcpStream;
 use torrent::{Bitfield, InfoHash, PeerId};
 
 use std::net::SocketAddrV4;
@@ -115,8 +116,8 @@ async fn spawn_peer(
     info_hash: InfoHash,
     peer_id: PeerId,
 ) -> anyhow::Result<()> {
-    let connx = PeerAddr::new(peer_addr);
-    let mut worker =
+    let connx = PeerConnector::connect(peer_addr).await?;
+    let mut worker: PeerDownloadWorker<TcpStream> =
         PeerDownloadWorker::init_from(connx.handshake(info_hash, peer_id).await?, alerts_channel)
             .await?;
     worker.start_peer_event_loop().await?;
@@ -163,7 +164,10 @@ async fn engine(
                 info!(piece_index, "received piece done");
                 break;
             }
-            _ => todo!(),
+            alert => {
+                println!("{:?}", alert);
+                todo!();
+            }
         }
     }
     Ok(())

@@ -4,18 +4,18 @@ use tokio::sync::mpsc;
 use super::{PeerAlerts, PeerCommands};
 use std::collections::VecDeque;
 
+use super::PeerStream;
 use super::PieceRequestInfo;
 use crate::PeerId;
 use std::net::SocketAddrV4;
-use tokio::net::TcpStream;
 
 #[derive(Debug)]
 /// data struct that owns all the types which describe the state of the worker independent of the
 /// download state.
-pub(super) struct WorkerStateDescriptor {
+pub(super) struct WorkerStateDescriptor<T: PeerStream> {
     pub peer_addr: SocketAddrV4,
     pub peer_id: PeerId,
-    pub peer_stream: PeerFrames<TcpStream>,
+    pub peer_stream: PeerFrames<T>,
     pub commands_rx: mpsc::Receiver<PeerCommands>,
     pub alerts_tx: mpsc::Sender<PeerAlerts>,
     pub download_queue: VecDeque<PieceRequestInfo>,
@@ -23,9 +23,12 @@ pub(super) struct WorkerStateDescriptor {
     pub we_are_interested: bool,
 }
 
-impl WorkerStateDescriptor {
+impl<T> WorkerStateDescriptor<T>
+where
+    T: PeerStream,
+{
     pub fn new(
-        peer_stream: PeerFrames<TcpStream>,
+        peer_stream: PeerFrames<T>,
         peer_addr: SocketAddrV4,
         peer_id: PeerId,
         alerts_tx: mpsc::Sender<PeerAlerts>,

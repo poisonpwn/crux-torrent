@@ -1,4 +1,4 @@
-use super::PeerAlerts;
+use super::{PeerAddr, PeerAlerts, PeerStream};
 use futures::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -14,40 +14,50 @@ use super::worker_fsm::WorkerState;
 use crate::peer_protocol::codec::{self, PeerMessage};
 use crate::peer_protocol::handshake::PeerHandshake;
 
-#[derive(Debug, Clone)]
-pub struct PeerAddr {
-    peer_addr: SocketAddrV4,
+pub struct PeerConnector<S: PeerStream> {
+    peer_addr: PeerAddr,
+    stream: S,
 }
 
 /// interface type between PeerAddr and PeerDownloadWorker
 #[derive(Debug)]
-pub struct PeerDownloaderConnection {
+pub struct PeerDownloaderConnection<S: PeerStream> {
     peer_addr: SocketAddrV4,
     peer_id: PeerId,
-    stream: TcpStream,
+    stream: S,
 }
 
 #[derive(Debug)]
-pub struct PeerDownloadWorker {
+pub struct PeerDownloadWorker<T: PeerStream> {
     state: WorkerState,
-    descriptor: WorkerStateDescriptor,
+    descriptor: WorkerStateDescriptor<T>,
 }
 
-impl PeerAddr {
-    pub fn new(peer_addr: SocketAddrV4) -> Self {
-        Self { peer_addr }
-    }
+impl PeerConnector<TcpStream> {
+    #[instrument(name = "connect to peer", level = "info", fields(%peer_addr), skip_all)]
+    pub async fn connect(peer_addr: PeerAddr) -> anyhow::Result<Self> {
+        info!("connecting to peer");
+        let stream = TcpStream::connect(peer_addr).await.map_err(|e| {
+            error!("failed to connect to peer");
+            e
+        })?;
 
+        Ok(Self { peer_addr, stream })
+    }
+}
+
+impl<S: PeerStream> PeerConnector<S> {
     #[instrument(name = "handshake mode", level = "info", skip_all)]
     pub async fn handshake(
         self,
         info_hash: InfoHash,
-        peer_id: PeerId,
-    ) -> anyhow::Result<PeerDownloaderConnection> {
-        info!("connecting to peer");
-        let mut stream = TcpStream::connect(&self.peer_addr).await?;
-
-        let handshake = PeerHandshake::new(info_hash, peer_id);
+        client_peer_id: PeerId,
+    ) -> anyhow::Result<PeerDownloaderConnection<S>> {
+        let Self {
+            peer_addr,
+            mut stream,
+        } = self;
+        let handshake = PeerHandshake::new(info_hash, client_peer_id);
         let mut bytes = handshake.into_bytes();
 
         info!("sending handshake to peer");
@@ -63,12 +73,12 @@ impl PeerAddr {
         Ok(PeerDownloaderConnection {
             stream,
             peer_id: handshake.peer_id,
-            peer_addr: self.peer_addr,
+            peer_addr,
         })
     }
 }
 
-impl PeerDownloadWorker {
+impl<S: PeerStream> PeerDownloadWorker<S> {
     const COMMAND_BUFFER_SIZE: usize = 5;
 
     pub async fn init_from(
@@ -77,9 +87,9 @@ impl PeerDownloadWorker {
             peer_id,
             peer_addr,
             ..
-        }: PeerDownloaderConnection,
+        }: PeerDownloaderConnection<S>,
         alerts_tx: mpsc::Sender<PeerAlerts>,
-    ) -> anyhow::Result<PeerDownloadWorker> {
+    ) -> anyhow::Result<PeerDownloadWorker<S>> {
         let mut peer_stream = codec::upgrade_stream(stream);
 
         let msg = match peer_stream.next().await {

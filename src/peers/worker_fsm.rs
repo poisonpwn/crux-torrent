@@ -9,6 +9,8 @@ use super::descriptor::WorkerStateDescriptor;
 use super::progress::PieceDownloadProgress;
 use super::{PeerAlerts, PeerCommands, PieceIndex, PieceRequestInfo};
 
+use super::PeerStream;
+
 #[derive(Debug, Clone)]
 pub enum WorkerState {
     WaitingforPiece {
@@ -23,7 +25,7 @@ pub enum WorkerState {
 impl WorkerState {
     pub async fn transition(
         &mut self,
-        descriptor: &mut WorkerStateDescriptor,
+        descriptor: &mut WorkerStateDescriptor<impl PeerStream>,
     ) -> anyhow::Result<()> {
         match self {
             Self::WaitingforPiece {
@@ -157,7 +159,7 @@ impl WorkerState {
             we_are_interested,
             download_queue,
             ..
-        }: &mut WorkerStateDescriptor,
+        }: &mut WorkerStateDescriptor<impl PeerStream>,
     ) -> anyhow::Result<()> {
         type PC = PeerCommands;
 
@@ -190,7 +192,7 @@ impl WorkerState {
             peer_addr,
             alerts_tx,
             ..
-        }: &mut WorkerStateDescriptor,
+        }: &mut WorkerStateDescriptor<impl PeerStream>,
         piece: &mut Vec<u8>,
         download_progress: &mut PieceDownloadProgress,
     ) -> anyhow::Result<()> {
