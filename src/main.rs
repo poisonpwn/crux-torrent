@@ -16,7 +16,7 @@ use tracing::Level;
 
 use metainfo::{url::TrackerUrl, DownloadInfo};
 use peers::{
-    download_worker::{PeerAddr, PeerDownloadWorker},
+    download_worker::{PeerConnector, PeerDownloadWorker},
     PeerAlerts, PeerCommands, PieceRequestInfo,
 };
 use torrent::{Bitfield, InfoHash, PeerId};
@@ -115,7 +115,7 @@ async fn spawn_peer(
     info_hash: InfoHash,
     peer_id: PeerId,
 ) -> anyhow::Result<()> {
-    let connx = PeerAddr::new(peer_addr);
+    let connx = PeerConnector::connect(peer_addr).await?;
     let mut worker =
         PeerDownloadWorker::init_from(connx.handshake(info_hash, peer_id).await?, alerts_channel)
             .await?;
