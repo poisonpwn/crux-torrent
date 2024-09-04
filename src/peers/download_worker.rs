@@ -138,3 +138,57 @@ impl<S: PeerStream> PeerDownloadWorker<S> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rand::Rng;
+    use rstest::rstest;
+    use std::net::Ipv4Addr;
+    use tokio_test::io::Builder;
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_handshake() -> anyhow::Result<()> {
+        let mut rng = rand::thread_rng();
+
+        let info_hash = [0; InfoHash::INFO_HASH_SIZE];
+        info_hash.map(|_| rng.gen::<u8>());
+        let info_hash = InfoHash::new(info_hash);
+
+        let client_peer_id = PeerId::random();
+        let peer_id = PeerId::random();
+
+        let handshake_sent = PeerHandshake::new(info_hash.clone(), client_peer_id.clone());
+        let handshake_sent = handshake_sent.into_bytes();
+
+        let handshake_received = PeerHandshake::new(info_hash.clone(), peer_id.clone());
+        let handshake_received = handshake_received.into_bytes();
+
+        let mock_io = Builder::new()
+            .write(&handshake_sent)
+            .read(&handshake_received)
+            .build();
+
+        let test_addr = {
+            let ip_addr = Ipv4Addr::from(rng.gen::<u32>());
+            let port: u16 = rng.gen();
+            PeerAddr::new(ip_addr, port)
+        };
+
+        let connector = PeerConnector::from_parts(test_addr, mock_io);
+        let PeerDownloaderConnection {
+            peer_addr,
+            peer_id: returned_peer_id,
+            ..
+        } = connector
+            .handshake(info_hash, client_peer_id)
+            .await
+            .expect("mock io should not fail, no errors other than io errors should happen");
+
+        assert_eq!(peer_addr, test_addr);
+        assert_eq!(returned_peer_id, peer_id);
+
+        Ok(())
+    }
+}
