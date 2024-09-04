@@ -5,7 +5,7 @@ use serde::Serialize;
 #[repr(transparent)]
 pub struct InfoHash([u8; Self::INFO_HASH_SIZE]);
 impl InfoHash {
-    const INFO_HASH_SIZE: usize = sha1_smol::DIGEST_LENGTH;
+    pub const INFO_HASH_SIZE: usize = sha1_smol::DIGEST_LENGTH;
 }
 
 impl InfoHash {
