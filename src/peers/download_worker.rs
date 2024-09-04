@@ -42,11 +42,15 @@ impl PeerConnector<TcpStream> {
             e
         })?;
 
-        Ok(Self { peer_addr, stream })
+        Ok(Self::from_parts(peer_addr, stream))
     }
 }
 
 impl<S: PeerStream> PeerConnector<S> {
+    pub(super) fn from_parts(peer_addr: PeerAddr, stream: S) -> Self {
+        Self { peer_addr, stream }
+    }
+
     #[instrument(name = "handshake mode", level = "info", skip_all)]
     pub async fn handshake(
         self,
