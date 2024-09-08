@@ -17,7 +17,11 @@ impl PeerId {
     pub const PEER_ID_VENDOR_PREFIX: &'static [u8; 8] = b"-CX0000-";
     pub const SUFFIX_LEN: usize = Self::PEER_ID_SIZE - Self::PEER_ID_VENDOR_PREFIX.len();
 
-    pub fn new(suffix: &[u8; Self::SUFFIX_LEN]) -> Self {
+    pub fn new(bytes: [u8; Self::PEER_ID_SIZE]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn with_suffix(suffix: &[u8; Self::SUFFIX_LEN]) -> Self {
         let mut peer_id = [0; Self::PEER_ID_SIZE];
 
         let (prefix_segment, suffix_segment) =
@@ -26,14 +30,14 @@ impl PeerId {
 
         suffix_segment.copy_from_slice(suffix);
 
-        PeerId(peer_id)
+        PeerId::new(peer_id)
     }
 
-    pub fn random() -> Self {
+    pub fn with_random_suffix() -> Self {
         let mut rng = rand::thread_rng();
         let suffix = Alphanumeric.sample_string(&mut rng, Self::SUFFIX_LEN);
 
-        Self::new(
+        Self::with_suffix(
             suffix
                 .as_bytes()
                 .try_into()
@@ -64,7 +68,7 @@ mod test {
             suffix
         };
 
-        let peer_id = PeerId::new(&suffix);
+        let peer_id = PeerId::with_suffix(&suffix);
         let peer_id_slice = peer_id.as_ref();
 
         let test_peer_id_slice = {

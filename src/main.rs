@@ -8,6 +8,7 @@ mod tracker;
 
 use clap::Parser;
 use cli::Cli;
+use peer_protocol::handshake::PeerHandshake;
 use prelude::*;
 
 use tokio::sync::mpsc;
@@ -45,7 +46,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let matches = Cli::parse();
     let metainfo = metainfo::Metainfo::from_bencode_file(matches.source).await?;
 
-    let peer_id = PeerId::random();
+    let peer_id = PeerId::with_random_suffix();
     let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
@@ -117,9 +118,13 @@ async fn spawn_peer(
     peer_id: PeerId,
 ) -> anyhow::Result<()> {
     let connx = PeerConnector::connect(peer_addr).await?;
-    let mut worker: PeerDownloadWorker<TcpStream> =
-        PeerDownloadWorker::init_from(connx.handshake(info_hash, peer_id).await?, alerts_channel)
-            .await?;
+    let mut worker: PeerDownloadWorker<TcpStream> = PeerDownloadWorker::init_from(
+        connx
+            .handshake(PeerHandshake::new(info_hash, peer_id))
+            .await?,
+        alerts_channel,
+    )
+    .await?;
     worker.start_peer_event_loop().await?;
     Ok(())
 }

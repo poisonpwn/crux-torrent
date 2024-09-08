@@ -13,6 +13,12 @@ pub struct PeerHandshake {
     pub peer_id: PeerId,
 }
 
+impl AsRef<[u8; std::mem::size_of::<Self>()]> for PeerHandshake {
+    fn as_ref(&self) -> &[u8; std::mem::size_of::<Self>()] {
+        unsafe { std::mem::transmute::<&Self, &[u8; std::mem::size_of::<Self>()]>(self) }
+    }
+}
+
 impl PeerHandshake {
     pub const PROTOCOL_PREFIX: [u8; 19] = *b"BitTorrent protocol";
     pub fn new(info_hash: InfoHash, peer_id: PeerId) -> Self {
@@ -56,7 +62,7 @@ mod tests {
 
     #[fixture]
     fn peer_id() -> PeerId {
-        PeerId::new(&PEER_ID_SUFFIX)
+        PeerId::with_suffix(&PEER_ID_SUFFIX)
     }
 
     #[fixture]
