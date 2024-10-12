@@ -1,11 +1,12 @@
 use super::{PeerAddr, PeerAlerts, PeerStream};
 use futures::StreamExt;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use crate::prelude::*;
-use crate::torrent::{InfoHash, PeerId};
+use crate::torrent::PeerId;
 use std::net::SocketAddrV4;
 
 use super::descriptor::WorkerStateDescriptor;
@@ -37,9 +38,8 @@ impl PeerConnector<TcpStream> {
     #[instrument(name = "connect to peer", level = "info", fields(%peer_addr), skip_all)]
     pub async fn connect(peer_addr: PeerAddr) -> anyhow::Result<Self> {
         info!("connecting to peer");
-        let stream = TcpStream::connect(peer_addr).await.map_err(|e| {
+        let stream = TcpStream::connect(peer_addr).await.inspect_err(|_| {
             error!("failed to connect to peer");
-            e
         })?;
 
         Ok(Self::from_parts(peer_addr, stream))
@@ -56,6 +56,7 @@ impl<S: PeerStream> PeerConnector<S> {
         self,
         handshake: PeerHandshake,
     ) -> anyhow::Result<PeerDownloaderConnection<S>> {
+        //unwrap self inside function instead of the signature.
         let Self {
             peer_addr,
             mut stream,
@@ -139,11 +140,19 @@ impl<S: PeerStream> PeerDownloadWorker<S> {
 
 #[cfg(test)]
 mod test {
+    use crate::torrent::{Bitfield, InfoHash};
+
     use super::*;
+    use bitvec::vec::BitVec;
+    use codec::{PeerFrames, PeerMessageCodec};
     use rand::Rng;
     use rstest::{fixture, rstest};
     use std::net::Ipv4Addr;
-    use tokio_test::io::Builder;
+    use tokio_test::io::{Builder, Mock};
+    use tokio_util::{
+        bytes::BytesMut,
+        codec::{Encoder, FramedWrite},
+    };
 
     #[fixture]
     fn client_peer_id() -> PeerId {
@@ -166,6 +175,47 @@ mod test {
 
     #[rstest(peer_addr as test_addr)]
     #[tokio::test]
+    async fn test_init(test_addr: PeerAddr) -> anyhow::Result<()> {
+        let mut rng = rand::thread_rng();
+        let test_peer_id = PeerId::new([0; PeerId::PEER_ID_SIZE].map(|_| rng.gen()));
+
+        // Bitfield is 5bytes with all ones
+        let test_bitfield = Bitfield::from_iter(std::iter::repeat(0xFF).take(5));
+
+        let mut encoder = PeerMessageCodec::new();
+        let mut buffer = BytesMut::new();
+        encoder.encode(PeerMessage::Bitfield(test_bitfield.clone()), &mut buffer)?;
+
+        let current = buffer.split();
+        let mock_stream = Builder::new().read(&current).build();
+
+        let (alerts_tx, mut alerts_rx) = mpsc::channel(12);
+        let connx = PeerDownloaderConnection {
+            peer_addr: test_addr,
+            peer_id: test_peer_id,
+            stream: mock_stream,
+        };
+
+        let peer_handle = tokio::spawn(PeerDownloadWorker::init_from(connx, alerts_tx));
+        let message = alerts_rx.recv().await;
+
+        assert!(message.is_some_and(|msg| {
+            match msg {
+                PeerAlerts::InitPeer {
+                    peer_addr,
+                    bitfield,
+                    ..
+                } => (peer_addr == test_addr) && (bitfield == test_bitfield),
+                _ => false,
+            }
+        }));
+        let _worker = peer_handle.await??;
+
+        Ok(())
+    }
+
+    #[rstest(peer_addr as test_addr)]
+    #[tokio::test]
     async fn test_handshake(
         info_hash: InfoHash,
         client_peer_id: PeerId,
@@ -184,17 +234,13 @@ mod test {
 
         let connector = PeerConnector::from_parts(test_addr, mock_io);
 
-        let PeerDownloaderConnection {
-            peer_addr,
-            peer_id: returned_peer_id,
-            ..
-        } = connector
+        let connx = connector
             .handshake(handshake_sent)
             .await
             .expect("mock io should not fail, no errors other than io errors should be generated");
 
-        assert_eq!(peer_addr, test_addr);
-        assert_eq!(returned_peer_id, test_peer_id);
+        assert_eq!(connx.peer_addr, test_addr);
+        assert_eq!(connx.peer_id, test_peer_id);
 
         Ok(())
     }
