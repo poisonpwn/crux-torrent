@@ -194,7 +194,6 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
                 dst.put_u32(begin);
                 dst.put_u32(length);
             }
-
             PM::Piece {
                 index,
                 begin,
@@ -209,10 +208,11 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
             }
 
             PM::Bitfield(bitfield) => {
-                dst.put_u32(TAG_LEN + bitfield.len() as u32);
+                let bf_byte_slice = bitfield.as_raw_slice();
+                dst.put_u32(TAG_LEN + bf_byte_slice.len() as u32);
                 dst.put_u8(tag);
 
-                dst.put(bitfield.as_raw_slice());
+                dst.put(bf_byte_slice);
             }
         }
         Ok(())
