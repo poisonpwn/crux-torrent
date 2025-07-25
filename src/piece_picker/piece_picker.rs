@@ -1,6 +1,7 @@
+use lockable::LockPool;
 use std::{
-    collections::{btree_map::Entry, BTreeMap},
-    sync::{Arc, Mutex, RwLock},
+    collections::btree_map::Entry,
+    sync::{Arc, RwLock},
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -21,7 +22,7 @@ pub struct PiecePicker {
 }
 
 impl PiecePicker {
-    const MAX_QUEUED: usize = 20;
+    const MAX_QUEUED: usize = 5;
     const PIECE_BUFFER_SIZE: usize = 10;
 
     pub fn new(
@@ -31,6 +32,7 @@ impl PiecePicker {
         let (piece_tx, piece_rx) = mpsc::channel(Self::PIECE_BUFFER_SIZE);
 
         let piece_queue = Arc::new(RwLock::new(PieceQueue::new()));
+        let lock_pool = Arc::new(LockPool::new());
 
         let piece_picker = Self {
             piece_infos,
@@ -42,29 +44,43 @@ impl PiecePicker {
             shutdown_token,
         };
 
-        let picker_handle = PiecePickerHandle::new(piece_queue, piece_tx);
+        let picker_handle = PiecePickerHandle::new(piece_queue, lock_pool, piece_tx);
 
         (piece_picker, picker_handle)
     }
 
-    #[instrument("piece picker", fields(skip_all))]
-    async fn run(&mut self) -> anyhow::Result<()> {
+    #[instrument("piece picker", level = "debug", skip_all)]
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         loop {
-            if (self.n_received == self.piece_infos.len()) {
+            if self.n_received == self.piece_infos.len() as u32 {
                 info!("received all pieces, shutting down piece picker");
                 return Ok(());
             }
 
-            if self.piece_queue.read()?.is_empty() {
-                debug!("piece queue empty, refilling piece queue.");
-                let piece_queue = self.piece_queue.get_mut()?;
-                let next_end = std::cmp::max(self.piece_infos.len(), self.end + Self::MAX_QUEUED);
+            {
+                let piece_queue = self.piece_queue.read().map_err(|_| {
+                    error!("error encountered while reading piece queue");
+                    anyhow::Error::msg("error encountered while reading piece queue")
+                })?;
 
-                for piece_id in (self.end..next_end) {
-                    piece_queue.insert(piece_id, self.piece_infos[piece_id]);
+                if piece_queue.is_empty() {
+                    debug!("piece queue empty, refilling piece queue.");
+                    drop(piece_queue);
+
+                    let mut piece_queue = self.piece_queue.write().map_err(|_| {
+                        error!("error encountered while reading piece queue");
+                        anyhow::Error::msg("error encountered while reading piece queue")
+                    })?;
+
+                    let next_end =
+                        std::cmp::max(self.piece_infos.len(), self.end + Self::MAX_QUEUED);
+
+                    for piece_id in self.end..next_end {
+                        piece_queue.insert(piece_id, self.piece_infos[piece_id]);
+                    }
+                    self.start = self.end;
+                    self.end = next_end;
                 }
-                self.start = self.end;
-                self.end = next_end;
             }
 
             tokio::select! {
@@ -75,11 +91,16 @@ impl PiecePicker {
 
                 Some(PieceDone {
                     piece_id,
-                    piece
+                    piece: _piece,
+                    notify
                 }) = self.piece_rx.recv() => {
                     debug!("receieved piece done {}", piece_id);
+                    // TODO flush the piece to disk here.
 
-                    let piece_queue = self.piece_queue.get_mut()?;
+                    let mut piece_queue = self.piece_queue.write().map_err(|_| {
+                        error!("error encountered while reading piece queue");
+                        anyhow::Error::msg("error encountered while reading piece queue")
+                    })?;
 
                     match piece_queue.entry(piece_id) {
                         Entry::Vacant(_) => {
@@ -87,15 +108,13 @@ impl PiecePicker {
                         }
                         Entry::Occupied(e) => {
                         // TODO: queue the piece to be flushed to disk.
+                            debug!("receieved piece {piece_id}, incrementing n received");
                             self.n_received += 1;
-                            e.remove()
+                            e.remove();
                         }
                     }
-                }
-
-                else => {
-                    info!("all receivers closed, shutting down piece picker");
-                    return Ok(());
+                    debug!("notifying done piece: {}", piece_id);
+                    notify.notify_one();
                 }
             }
         }

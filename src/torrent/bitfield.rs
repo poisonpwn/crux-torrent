@@ -4,6 +4,7 @@ use bitvec::{order::Msb0, prelude as bv};
 // bitfields sent on the peer messages codec are big endian byte order (i.e Most significant bit
 // first)
 pub type Bitfield = bv::BitVec<u8, Msb0>;
+pub type Bitslice = bv::BitSlice<u8, Msb0>;
 
 #[cfg(test)]
 mod tests {
