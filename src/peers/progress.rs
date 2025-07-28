@@ -50,7 +50,11 @@ impl PieceDownloadProgress {
         block_begin: BlockOffset,
         length: BlockLength,
     ) -> anyhow::Result<()> {
-        if block_begin != self.downloaded {
+        if block_begin < self.downloaded {
+            return Ok(());
+        }
+
+        if block_begin > self.downloaded {
             warn!(
                 last_downloaded_block = self.downloaded,
                 incoming_block = block_begin,

@@ -1,17 +1,18 @@
-use super::PeerAlerts;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
+use sha1_smol::Sha1;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
+use crate::piece_picker::{PieceHandle, PiecePickerHandle};
 use crate::prelude::*;
-use crate::torrent::{InfoHash, PeerId};
+use crate::torrent::{Bitfield, InfoHash, PeerId};
 use std::net::SocketAddrV4;
 
-use super::descriptor::WorkerStateDescriptor;
-use super::worker_fsm::WorkerState;
+use super::progress::PieceDownloadProgress;
+use super::PieceIndex;
 
-use crate::peer_protocol::codec::{self, PeerMessage};
+use crate::peer_protocol::codec::{self, PeerFrames, PeerMessage};
 use crate::peer_protocol::handshake::PeerHandshake;
 
 #[derive(Debug, Clone)]
@@ -27,10 +28,14 @@ pub struct PeerDownloaderConnection {
     stream: TcpStream,
 }
 
-#[derive(Debug)]
 pub struct PeerDownloadWorker {
-    state: WorkerState,
-    descriptor: WorkerStateDescriptor,
+    peer_addr: SocketAddrV4,
+    peer_id: PeerId,
+    bitfield: Bitfield,
+    peer_stream: PeerFrames<TcpStream>,
+    peer_is_choked: bool,
+    we_are_interested: bool,
+    shutdown_token: CancellationToken,
 }
 
 impl PeerAddr {
@@ -69,8 +74,6 @@ impl PeerAddr {
 }
 
 impl PeerDownloadWorker {
-    const COMMAND_BUFFER_SIZE: usize = 5;
-
     pub async fn init_from(
         PeerDownloaderConnection {
             stream,
@@ -78,8 +81,8 @@ impl PeerDownloadWorker {
             peer_addr,
             ..
         }: PeerDownloaderConnection,
-        alerts_tx: mpsc::Sender<PeerAlerts>,
-    ) -> anyhow::Result<PeerDownloadWorker> {
+        shutdown_token: CancellationToken,
+    ) -> anyhow::Result<Self> {
         let mut peer_stream = codec::upgrade_stream(stream);
 
         let msg = match peer_stream.next().await {
@@ -99,28 +102,183 @@ impl PeerDownloadWorker {
             }
         };
 
-        let (commands_tx, commands_rx) = mpsc::channel(Self::COMMAND_BUFFER_SIZE);
-
-        info!("sending init peer alert to engine");
-        alerts_tx
-            .send(PeerAlerts::InitPeer {
-                peer_addr,
-                bitfield,
-                commands_tx,
-            })
-            .await?;
-        let descriptor =
-            WorkerStateDescriptor::new(peer_stream, peer_addr, peer_id, alerts_tx, commands_rx);
-
         Ok(Self {
-            descriptor,
-            state: WorkerState::Idle,
+            peer_stream,
+            peer_addr,
+            peer_id,
+            bitfield,
+            shutdown_token,
+            peer_is_choked: true,
+            we_are_interested: false,
         })
     }
 
-    pub async fn start_peer_event_loop(&mut self) -> anyhow::Result<()> {
+    #[instrument("download worker", level = "debug", skip_all)]
+    async fn run(&mut self, piece_picker_handle: &PiecePickerHandle) -> anyhow::Result<()> {
+        debug!("worker fetching next piece");
+
+        let piece_handle = {
+            tokio::select! {
+                _ = self.shutdown_token.cancelled() => {
+                    info!("shutdown signal received, shutting down peer");
+                    anyhow::bail!("shutdown signal received, shutting down peer: {:?}", self.peer_id);
+                }
+
+                next_piece_res = piece_picker_handle.next_piece(self.bitfield.as_bitslice()) => { match next_piece_res {
+                        Ok(next_piece) => next_piece,
+                        Err(_) => {
+                            error!("error while fetching next piece from piece picker");
+                            anyhow::bail!("error while fetching next piece from piece picker: {:?}", self.peer_id);
+                        }
+                    }
+                }
+            }
+        };
+
+        if let Ok(piece) = self.download_piece(&piece_handle).await {
+            debug!(
+                "download complete, submitting piece {}",
+                piece_handle.piece_id
+            );
+            piece_handle.submit(piece).await?;
+        } else {
+            self.bitfield.set(piece_handle.piece_id, false);
+            warn!("error piece download failed, {}", piece_handle.piece_id); // download failure is not fatal
+        }
+
+        Ok(())
+    }
+
+    #[instrument("download piece", level = "info", skip_all, fields(piece_id = piece_handle.piece_id))]
+    pub async fn download_piece(
+        &mut self,
+        piece_handle: &PieceHandle<'_>,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut progress = PieceDownloadProgress::new(piece_handle.piece_length);
+        let mut piece = Vec::new();
+
+        while !progress.is_done() {
+            if !self.we_are_interested {
+                info!("sending unchoke");
+                self.peer_stream.send(PeerMessage::Unchoke).await?;
+                info!("sending interested");
+                self.peer_stream.send(PeerMessage::Interested).await?;
+                self.we_are_interested = true;
+            }
+
+            if !self.peer_is_choked {
+                while let Some((begin, length)) = progress.next_block_info() {
+                    let request = PeerMessage::Request {
+                        index: piece_handle.piece_id as u32,
+                        begin,
+                        length,
+                    };
+
+                    info!("sending request to peer {:?}", request);
+                    self.peer_stream.send(request).await?;
+                }
+            }
+
+            tokio::select! {
+                msg = self.peer_stream.next() => {
+                    let msg = match msg {
+                        Some(msg) => msg?,
+                        None => {
+                            warn!("peer closed connection before piece could be downloaded");
+                            anyhow::bail!("peer closed connection before piece could be downloaded");
+                        }
+                    };
+
+                    self.handle_peer_message(msg, piece_handle.piece_id, &mut piece, &mut progress).await?;
+                }
+
+                _ = self.shutdown_token.cancelled() => {
+                    info!("shutdown signal received shutting down worker");
+                    anyhow::bail!("shutting down.");
+                }
+            }
+        }
+        let piece_hash = Sha1::from(&piece).digest().bytes();
+        if piece_hash != piece_handle.piece_hash {
+            warn!("downloaded piece hash check failed");
+            anyhow::bail!("piece hash check failed");
+        }
+
+        info!("piece hash check succeeded");
+        debug!("piece download complete");
+        Ok(piece)
+    }
+
+    async fn handle_peer_message(
+        &mut self,
+        msg: PeerMessage,
+        piece_id: PieceIndex,
+        piece: &mut Vec<u8>,
+        download_progress: &mut PieceDownloadProgress,
+    ) -> anyhow::Result<()> {
+        type PM = PeerMessage;
+        match msg {
+            PM::Choke => {
+                info!("peer choked");
+                self.peer_is_choked = true;
+                download_progress.reset_progress();
+            }
+            PM::Unchoke => {
+                info!("peer unchoked");
+                self.peer_is_choked = false;
+            }
+
+            PM::Piece {
+                index: recv_index,
+                begin,
+                piece: block,
+            } => {
+                let block_span = debug_span!("handle block message", begin, index = recv_index);
+                let _gaurd = block_span.enter();
+
+                debug!("received block");
+
+                if piece_id != recv_index as usize {
+                    error!("unrequested piece receieved from peer");
+                    anyhow::bail!("unrequested piece received from peer");
+                }
+
+                trace!(block_length = block.len());
+
+                download_progress.update_downloaded(begin, block.len() as u32)?;
+
+                trace!("appending block onto piece");
+                piece.extend(block);
+                trace!(new_piece_length = piece.len());
+            }
+            PM::Have(piece_index) => {
+                let span = debug_span!("handle have message", piece_index);
+                let _guard = span.enter();
+                info!("received have message");
+
+                self.bitfield.set(piece_index as usize, true);
+            }
+            PM::Bitfield(_) => {
+                warn!("bitfield message received after first message");
+            }
+
+            mesg
+            @ (PM::Cancel { .. } | PM::NotInterested | PM::Interested | PM::Request { .. }) => {
+                warn!(
+                    "received downloader side messages from peer while in inbound mode, {:?}",
+                    mesg
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn start_peer_event_loop(
+        &mut self,
+        piece_picker_handle: impl AsRef<PiecePickerHandle>,
+    ) -> anyhow::Result<()> {
         loop {
-            self.state.transition(&mut self.descriptor).await?;
+            self.run(piece_picker_handle.as_ref()).await?;
         }
     }
 }
