@@ -135,6 +135,7 @@ impl PeerDownloadWorker {
             }
         };
 
+        debug!("downloading piece {}", piece_handle.piece_id);
         if let Ok(piece) = self.download_piece(&piece_handle).await {
             debug!(
                 "download complete, submitting piece {}",
@@ -155,13 +156,13 @@ impl PeerDownloadWorker {
         piece_handle: &PieceHandle<'_>,
     ) -> anyhow::Result<Vec<u8>> {
         let mut progress = PieceDownloadProgress::new(piece_handle.piece_length);
-        let mut piece = Vec::new();
+        let mut piece = vec![0; piece_handle.piece_length as usize];
 
         while !progress.is_done() {
             if !self.we_are_interested {
-                info!("sending unchoke");
+                debug!("sending unchoke");
                 self.peer_stream.send(PeerMessage::Unchoke).await?;
-                info!("sending interested");
+                debug!("sending interested");
                 self.peer_stream.send(PeerMessage::Interested).await?;
                 self.we_are_interested = true;
             }
@@ -174,7 +175,7 @@ impl PeerDownloadWorker {
                         length,
                     };
 
-                    info!("sending request to peer {:?}", request);
+                    debug!("sending request to peer {:?}", request);
                     self.peer_stream.send(request).await?;
                 }
             }
@@ -204,8 +205,8 @@ impl PeerDownloadWorker {
             anyhow::bail!("piece hash check failed");
         }
 
-        info!("piece hash check succeeded");
-        debug!("piece download complete");
+        debug!("piece hash check succeeded");
+        info!("piece download complete");
         Ok(piece)
     }
 
@@ -213,7 +214,7 @@ impl PeerDownloadWorker {
         &mut self,
         msg: PeerMessage,
         piece_id: PieceIndex,
-        piece: &mut Vec<u8>,
+        mut piece: impl AsMut<[u8]>,
         download_progress: &mut PieceDownloadProgress,
     ) -> anyhow::Result<()> {
         type PM = PeerMessage;
@@ -239,17 +240,17 @@ impl PeerDownloadWorker {
                 debug!("received block");
 
                 if piece_id != recv_index as usize {
-                    error!("unrequested piece receieved from peer");
-                    anyhow::bail!("unrequested piece received from peer");
+                    warn!("unrequested piece receieved from peer, curr piece id: {}, received piece id: {}", piece_id, recv_index);
+                    return Ok(());
                 }
 
                 trace!(block_length = block.len());
 
-                download_progress.update_downloaded(begin, block.len() as u32)?;
+                let _ = download_progress.update_downloaded(begin);
 
-                trace!("appending block onto piece");
-                piece.extend(block);
-                trace!(new_piece_length = piece.len());
+                trace!("writing block to piece");
+                piece.as_mut()[(begin as usize)..(begin as usize + block.len())]
+                    .copy_from_slice(&block);
             }
             PM::Have(piece_index) => {
                 let span = debug_span!("handle have message", piece_index);
