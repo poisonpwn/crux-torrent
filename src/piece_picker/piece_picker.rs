@@ -22,7 +22,7 @@ pub struct PiecePicker {
 }
 
 impl PiecePicker {
-    const MAX_QUEUED: usize = 5;
+    const MAX_QUEUED: usize = 100;
     const PIECE_BUFFER_SIZE: usize = 10;
 
     pub fn new(
@@ -43,7 +43,6 @@ impl PiecePicker {
             n_received: 0,
             shutdown_token,
         };
-
         let picker_handle = PiecePickerHandle::new(piece_queue, lock_pool, piece_tx);
 
         (piece_picker, picker_handle)
@@ -52,7 +51,7 @@ impl PiecePicker {
     #[instrument("piece picker", level = "debug", skip_all)]
     pub async fn run(&mut self) -> anyhow::Result<()> {
         loop {
-            if self.n_received == self.piece_infos.len() as u32 {
+            if self.n_received == (self.piece_infos.len() as u32) {
                 info!("received all pieces, shutting down piece picker");
                 return Ok(());
             }
@@ -64,6 +63,8 @@ impl PiecePicker {
                 })?;
 
                 if piece_queue.is_empty() {
+                    let span = debug_span!("refill piece queue");
+                    let _gaurd = span.enter();
                     debug!("piece queue empty, refilling piece queue.");
                     drop(piece_queue);
 
@@ -73,13 +74,19 @@ impl PiecePicker {
                     })?;
 
                     let next_end =
-                        std::cmp::max(self.piece_infos.len(), self.end + Self::MAX_QUEUED);
+                        std::cmp::min(self.piece_infos.len(), self.end + Self::MAX_QUEUED);
+
+                    debug!(
+                        "extending piece queue pieces, curr end: {}, next end: {}",
+                        self.end, next_end
+                    );
 
                     for piece_id in self.end..next_end {
                         piece_queue.insert(piece_id, self.piece_infos[piece_id]);
                     }
                     self.start = self.end;
                     self.end = next_end;
+                    drop(_gaurd);
                 }
             }
 
