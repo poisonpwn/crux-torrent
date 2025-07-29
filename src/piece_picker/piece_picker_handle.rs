@@ -82,7 +82,6 @@ impl PiecePickerHandle {
 
                     if let Some(gaurd) = self.lock_pool.try_lock(*piece_id) {
                         debug!("lock acquired for piece: {}", *piece_id);
-                        debug!(result = self.lock_pool.try_lock(*piece_id).is_none());
                         let PieceInfo {
                             piece_id,
                             hash,
