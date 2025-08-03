@@ -1,9 +1,8 @@
 mod piece_picker;
 mod piece_picker_handle;
 
-use lockable::{LockPool, Lockable};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::Notify;
 
 use crate::{
@@ -14,7 +13,8 @@ use crate::{
 pub use piece_picker::PiecePicker;
 pub use piece_picker_handle::{PieceHandle, PiecePickerHandle};
 pub type PieceQueue = BTreeMap<PieceIndex, PieceInfo>;
-pub type PieceGaurd<'a> = <LockPool<PieceIndex> as Lockable<PieceIndex, ()>>::Guard<'a>;
+pub type PieceGaurd<'a> = MutexGuard<'a, ()>;
+pub type PieceLockPool = Vec<Mutex<()>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PieceInfo {

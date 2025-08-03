@@ -1,9 +1,8 @@
-use lockable::LockPool;
 use std::{
     collections::btree_map::Entry,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::peers::PieceIndex;
@@ -32,7 +31,9 @@ impl PiecePicker {
         let (piece_tx, piece_rx) = mpsc::channel(Self::PIECE_BUFFER_SIZE);
 
         let piece_queue = Arc::new(RwLock::new(PieceQueue::new()));
-        let lock_pool = Arc::new(LockPool::new());
+        let mut lock_pool = Vec::new();
+        lock_pool.resize_with(piece_infos.len(), || Mutex::new(()));
+        let lock_pool = Arc::new(lock_pool);
 
         let piece_picker = Self {
             piece_infos,
@@ -114,7 +115,7 @@ impl PiecePicker {
                             warn!("piece received from worker that was not in piece queue, start: {} end: {} receieved: {}", self.start, self.end, piece_id);
                         }
                         Entry::Occupied(e) => {
-                        // TODO: queue the piece to be flushed to disk.
+                            // TODO: queue the piece to be flushed to disk.
                             debug!("receieved piece {piece_id}, incrementing n received");
                             self.n_received += 1;
                             e.remove();

@@ -1,9 +1,7 @@
-use lockable::LockPool;
-
-use super::{PieceDone, PieceGaurd, PieceInfo, PieceQueue};
+use super::{PieceDone, PieceGaurd, PieceInfo, PieceLockPool, PieceQueue};
 use crate::{metainfo::PieceHash, peers::PieceIndex, prelude::*, torrent::Bitslice};
 use std::{
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, TryLockError},
     time::Duration,
 };
 use tokio::sync::Notify;
@@ -13,7 +11,7 @@ use tokio::sync::mpsc;
 #[derive(Clone)]
 pub struct PiecePickerHandle {
     piece_queue: Arc<RwLock<PieceQueue>>,
-    lock_pool: Arc<LockPool<PieceIndex>>,
+    lock_pool: Arc<PieceLockPool>,
     piece_tx: mpsc::Sender<PieceDone>,
 }
 
@@ -47,13 +45,13 @@ impl PiecePickerHandle {
 
     pub(super) fn new(
         piece_queue: Arc<RwLock<PieceQueue>>,
-        lock_pool: Arc<LockPool<PieceIndex>>,
+        lock_pool: Arc<PieceLockPool>,
         piece_tx: mpsc::Sender<PieceDone>,
     ) -> Self {
         Self {
             piece_queue,
-            piece_tx,
             lock_pool,
+            piece_tx,
         }
     }
 
@@ -80,21 +78,26 @@ impl PiecePickerHandle {
                         continue;
                     }
 
-                    if let Some(gaurd) = self.lock_pool.try_lock(*piece_id) {
-                        debug!("lock acquired for piece: {}", *piece_id);
-                        let PieceInfo {
-                            piece_id,
-                            hash,
-                            length,
-                        } = *piece_info;
-                        return Ok(PieceHandle {
-                            piece_id,
-                            piece_hash: hash,
-                            piece_length: length,
-                            _gaurd: gaurd,
-                            piece_tx: self.piece_tx.clone(),
-                        });
-                    }
+                    let gaurd = match self.lock_pool[*piece_id].try_lock() {
+                        Ok(gaurd) => gaurd,
+                        Err(TryLockError::Poisoned(err)) => err.into_inner(),
+                        _ => continue,
+                    };
+
+                    debug!("lock acquired for piece: {}", *piece_id);
+                    let PieceInfo {
+                        piece_id,
+                        hash,
+                        length,
+                    } = *piece_info;
+
+                    return Ok(PieceHandle {
+                        piece_id,
+                        piece_hash: hash,
+                        piece_length: length,
+                        _gaurd: gaurd,
+                        piece_tx: self.piece_tx.clone(),
+                    });
                 }
             }
 
