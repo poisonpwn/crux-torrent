@@ -1,7 +1,8 @@
 mod piece_picker;
 mod piece_picker_handle;
 
-use std::collections::BTreeMap;
+use crossbeam_skiplist::SkipSet;
+use std::cmp::Reverse;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::Notify;
 
@@ -12,7 +13,14 @@ use crate::{
 
 pub use piece_picker::PiecePicker;
 pub use piece_picker_handle::{PieceHandle, PiecePickerHandle};
-pub type PieceQueue = BTreeMap<PieceIndex, PieceInfo>;
+
+#[derive(Ord, Eq, PartialEq, PartialOrd, Debug, Clone)]
+pub struct PieceEntry {
+    priority: u32,
+    pub piece_id: PieceIndex,
+}
+
+pub type PieceQueue = SkipSet<Reverse<PieceEntry>>;
 pub type PieceGaurd<'a> = MutexGuard<'a, ()>;
 pub type PieceLockPool = Vec<Mutex<()>>;
 

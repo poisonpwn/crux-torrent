@@ -2,7 +2,7 @@ use std::{
     collections::btree_map::Entry,
     sync::{Arc, Mutex, RwLock},
 };
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::peers::PieceIndex;
@@ -11,8 +11,8 @@ use crate::prelude::*;
 use super::{PieceDone, PieceInfo, PiecePickerHandle, PieceQueue};
 
 pub struct PiecePicker {
-    piece_queue: Arc<RwLock<PieceQueue>>,
-    piece_infos: Vec<PieceInfo>,
+    piece_queue: Arc<PieceQueue>,
+    piece_infos: Arc<Vec<PieceInfo>>,
     start: PieceIndex,
     end: PieceIndex,
     piece_rx: mpsc::Receiver<PieceDone>,

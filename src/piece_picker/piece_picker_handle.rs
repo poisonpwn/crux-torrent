@@ -1,18 +1,43 @@
 use super::{PieceDone, PieceGaurd, PieceInfo, PieceLockPool, PieceQueue};
-use crate::{metainfo::PieceHash, peers::PieceIndex, prelude::*, torrent::Bitslice};
+use crate::{
+    metainfo::PieceHash,
+    peers::{download_worker::PeerAddr, PieceIndex},
+    prelude::*,
+    torrent::{Bitfield, Bitslice},
+};
+use crossbeam_skiplist::SkipSet;
 use std::{
+    cmp::Reverse,
     sync::{Arc, RwLock, TryLockError},
     time::Duration,
 };
-use tokio::sync::Notify;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
+
+#[derive(Ord, Eq, PartialEq, PartialOrd, Debug, Clone)]
+struct PieceEntry {
+    priority: u32,
+    pub piece_id: PieceIndex,
+}
+
+pub struct PieceFreqUpdate {
+    peer_addr: PeerAddr,
+    update_mesg: PieceFreqUpdateMesg,
+}
+
+pub enum PieceFreqUpdateMesg {
+    Init(Arc<Bitfield>),
+    Have(PieceIndex),
+    Died(Arc<Bitfield>),
+}
 
 #[derive(Clone)]
 pub struct PiecePickerHandle {
-    piece_queue: Arc<RwLock<PieceQueue>>,
+    piece_queue: Arc<SkipSet<Reverse<PieceEntry>>>,
+    piece_infos: Arc<Vec<PieceInfo>>,
     lock_pool: Arc<PieceLockPool>,
     piece_tx: mpsc::Sender<PieceDone>,
+    piece_freq_update_tx: mpsc::Sender<PieceFreqUpdate>,
 }
 
 pub struct PieceHandle<'a> {

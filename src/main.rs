@@ -10,7 +10,6 @@ use clap::Parser;
 use cli::Cli;
 use prelude::*;
 
-use tokio::sync::mpsc;
 use tokio::task;
 use tracing::Level;
 
