@@ -13,11 +13,11 @@ services:
       - PGID=1000
     volumes:
       # make sure to create the test.torrent file from testfile with mktorrent or similar
-      # mktorrent -a http://172.30.0.1/announce -o test.torrent testfile # in the test_network dir
+      # mktorrent -a http://172.30.0.1:6969/announce -o test.torrent testfile # in the test_network dir
       - ./testfile:/downloads/complete/testfile # start seeding this file
       - ./test.torrent:/watch/test.torrent
     deploy:
-      replicas: 3
+      replicas: 20
     networks:
       torrent_test_net:
 
@@ -29,6 +29,6 @@ networks:
       com.docker.network.bridge.name: "br-torrent-test"
     ipam:
       config:
-        # to reach this subnet, run ip route add 172.20.0.0/24 dev torrent-test-net 
+        # to reach this subnet, run ip route add 172.20.0.0/24 dev br-torrent-test 
         - subnet: 172.30.0.0/16
           ip_range: 172.30.1.0/24
