@@ -14,8 +14,8 @@ struct Requested {
 
 #[derive(Debug, Clone)]
 pub(super) struct PieceDownloadProgress {
-    piece_length: PieceLength,
-    pending: VecDeque<Requested>, // queue that stores the pending blocks from oldest to youngest
+    pending: VecDeque<Requested>,
+    piece_length: PieceLength, // queue that stores the pending blocks from oldest to youngest
     block_status: Bitfield,
 }
 
@@ -24,7 +24,7 @@ impl PieceDownloadProgress {
     const MAX_PENDING_BLOCKS: u32 = 5;
     const REQUEUE_TIMEOUT: Duration = Duration::from_millis(800);
 
-    pub fn new(piece_length: u32) -> Self {
+    pub fn new(piece_length: PieceLength) -> Self {
         let nblocks = piece_length.div_ceil(Self::MAX_BLOCK_SIZE);
         let mut block_status = Bitfield::new();
         block_status.resize(nblocks as usize, false);
@@ -46,7 +46,7 @@ impl PieceDownloadProgress {
             .is_some_and(|requested| now - requested.request_time >= Self::REQUEUE_TIMEOUT)
         {
             let Requested { block_id, .. } = self.pending.pop_front().unwrap(); // unwrap safety: we've checked that the front is not None.
-            trace!("block request timed out, requeing block_id: {}", block_id);
+            debug!("block request timed out, requeing block_id: {}", block_id,);
 
             self.pending.push_back(Requested {
                 block_id,
@@ -59,7 +59,7 @@ impl PieceDownloadProgress {
         let reached_max_pending = self.pending.len() as u32 >= Self::MAX_PENDING_BLOCKS;
 
         if reached_max_pending {
-            trace!("request blocks pipeline filled");
+            debug!("request blocks pipeline filled");
             return None;
         }
 
@@ -99,10 +99,9 @@ impl PieceDownloadProgress {
                 }
             }) {
             Some(index) => {
-                trace!("removing block {block_id} from pending",);
+                debug!("removing block from pending queue {}", block_id);
                 self.pending.remove(index);
 
-                trace!("setting block status bit of block {block_id}",);
                 self.block_status.set(block_id as usize, true);
             }
             None => {
