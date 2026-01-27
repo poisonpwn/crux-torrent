@@ -73,26 +73,36 @@ async fn run_app() -> anyhow::Result<()> {
                 .await?
         }
     };
-    let (length, piece_hashes) = match &metainfo.file_info {
+    let (piece_length, piece_hashes, torrent_length) = match &metainfo.file_info {
         DownloadInfo::MultiFile {
             piece_length,
             pieces,
+            files,
             ..
-        } => (*piece_length as u32, pieces),
+        } => {
+            let torrent_length = files.iter().map(|f| f.length as u32).sum();
+            (*piece_length as u32, pieces, torrent_length)
+        }
         DownloadInfo::SingleFile {
             piece_length,
             pieces,
+            length,
             ..
-        } => (*piece_length as u32, pieces),
+        } => (*piece_length as u32, pieces, *length as u32),
     };
 
+    let npieces = piece_hashes.len();
     let piece_infos = piece_hashes
         .iter()
         .enumerate()
         .map(|(piece_id, piece_hash)| piece_picker::PieceInfo {
             piece_id,
             hash: *piece_hash,
-            length,
+            length: if piece_id == npieces - 1 {
+                torrent_length % piece_length
+            } else {
+                piece_length
+            },
         })
         .collect();
 
