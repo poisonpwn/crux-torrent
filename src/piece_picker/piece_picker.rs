@@ -1,6 +1,6 @@
 use simple_semaphore::Semaphore;
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::mpsc, time::sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::prelude::*;
@@ -9,6 +9,8 @@ use super::{
     comms::PiecePickerMessage, PieceDone, PieceFreq, PieceInfo, PieceKey, PiecePickerPrototype,
     PieceQueue,
 };
+
+use tokio::sync::Notify;
 
 /// this should be run as a task. It manages which pieces should be downladed, and so contains all
 /// the frequency information about all the pieces. each worker has a [super::PiecePickerHandle] which
@@ -24,6 +26,7 @@ pub struct PiecePicker {
     // lookup from PieceIndex -> PieceFreq
     piece_freq: Vec<PieceFreq>,
     shutdown_token: CancellationToken,
+    done_notify: Arc<Notify>,
     n_received: u32,
 }
 
@@ -33,7 +36,7 @@ impl PiecePicker {
     pub fn new(
         piece_infos: Vec<PieceInfo>,
         shutdown_token: CancellationToken,
-    ) -> (Self, PiecePickerPrototype) {
+    ) -> (Self, PiecePickerPrototype, Arc<Notify>) {
         let (piece_tx, piece_rx) = mpsc::channel(Self::PIECE_BUFFER_SIZE);
 
         let lock_pool = {
@@ -45,6 +48,7 @@ impl PiecePicker {
         let piece_freq = vec![0; piece_infos.len()];
         let piece_queue = PieceQueue::new();
         let piece_infos = Arc::new(piece_infos);
+        let done_notify = Arc::new(Notify::new());
 
         for (piece_id, _) in piece_freq.iter().enumerate() {
             piece_queue.insert(PieceKey { freq: 0, piece_id });
@@ -58,6 +62,7 @@ impl PiecePicker {
             piece_rx,
             // start: 0,
             // end: 0,
+            done_notify: Arc::clone(&done_notify),
             piece_freq,
             n_received: 0,
             shutdown_token,
@@ -65,14 +70,19 @@ impl PiecePicker {
         let picker_handle =
             PiecePickerPrototype::new(piece_queue, lock_pool, piece_infos, piece_tx);
 
-        (piece_picker, picker_handle)
+        (piece_picker, picker_handle, done_notify)
     }
 
     #[instrument("piece picker", level = "debug", skip_all)]
     pub async fn run(&mut self) -> anyhow::Result<()> {
         loop {
             if self.n_received == (self.piece_infos.len() as u32) {
-                info!("received all pieces, shutting down piece picker");
+                info!(
+                    "received all pieces ({} out of {}), shutting down piece picker",
+                    self.n_received,
+                    self.piece_infos.len()
+                );
+                self.done_notify.notify_one();
                 return Ok(());
             }
 

@@ -109,8 +109,10 @@ async fn run_app() -> anyhow::Result<()> {
     let shutdown_token = CancellationToken::new();
 
     let info_hash = metainfo.file_info.get_info_hash()?;
-    let (mut piece_picker, piece_picker_handle) =
+    let (mut piece_picker, piece_picker_handle, done_notify) =
         PiecePicker::new(piece_infos, shutdown_token.clone());
+
+    let piece_picker_join_handle = tokio::spawn(async move { piece_picker.run().await });
 
     let mut join_set = task::JoinSet::<anyhow::Result<()>>::new();
 
@@ -132,7 +134,15 @@ async fn run_app() -> anyhow::Result<()> {
         abort_handles.push(handle);
     }
 
-    piece_picker.run().await?;
+    done_notify.notified().await;
+    shutdown_token.cancel();
+
+    // don't return error on this since some of the peers might have
+    // errored out but it doesn't matter if we downloaded everything.
+    join_set.join_all().await;
+
+    // but this needs to be checked, since it could be that pieces were not flushed properly.
+    piece_picker_join_handle.await??;
     Ok(())
 }
 

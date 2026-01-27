@@ -149,6 +149,7 @@ impl PiecePickerHandle {
                     continue;
                 }
 
+                debug!("trying to acquire lock for piece: {}", piece_id);
                 if let Some(gaurd) = self.lock_pool[piece_id].try_acquire() {
                     debug!("lock acquired for piece: {}", piece_id);
                     let PieceInfo {
