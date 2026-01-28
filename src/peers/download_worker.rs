@@ -250,6 +250,7 @@ where
                 self.peer_is_choked = true;
                 download_progress.reset_progress();
             }
+
             PM::Unchoke => {
                 info!("peer unchoked");
                 self.peer_is_choked = false;
@@ -274,9 +275,10 @@ where
                 let _ = download_progress.update_downloaded(begin);
 
                 trace!("writing block to piece");
-                piece.as_mut()[(begin as usize)..(begin as usize + block.len())]
-                    .copy_from_slice(&block);
+                let begin = begin as usize;
+                piece.as_mut()[(begin)..(begin + block.len())].copy_from_slice(&block);
             }
+
             PM::Have(piece_id) => {
                 let span = debug_span!("handle have message", piece_id);
                 let _guard = span.enter();
@@ -284,6 +286,7 @@ where
 
                 let _ = piece_picker_handle.have_piece(piece_id as usize).await;
             }
+
             PM::Bitfield(_) => {
                 warn!("bitfield message received after first message");
             }
@@ -307,11 +310,3 @@ mod errors {
     #[error("peer closed connection before bitfield message was received")]
     pub struct PeerConnClosedBeforeBitfield;
 }
-
-// mod test {
-//     use super::*;
-//     use tokio_test::io::Mock;
-//
-//     #[tokio::test]
-//     async fn test_connection() {}
-// }

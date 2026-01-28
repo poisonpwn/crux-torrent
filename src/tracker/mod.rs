@@ -1,19 +1,18 @@
 pub mod request;
 pub mod response;
 
-use crate::metainfo::url::{HttpUrl, UdpUrl};
+use crate::metainfo::url::HttpUrl;
 use reqwest::Client as HttpClient;
-use tokio::net::UdpSocket;
 
 use request::TrackerRequest;
 
 use self::response::{TrackerResponse, TrackerResponseResult};
 
-#[derive(Debug, Clone)]
-pub struct UdpTracker<'a> {
-    client: &'a UdpSocket,
-    announce_url: UdpUrl,
-}
+// #[derive(Debug, Clone)]
+// pub struct UdpTracker<'a> {
+//     client: &'a UdpSocket,
+//     announce_url: UdpUrl,
+// }
 
 #[derive(Debug, Clone)]
 pub struct HttpTracker<'a> {
@@ -44,8 +43,8 @@ impl<'a> Announce for HttpTracker<'a> {
     }
 }
 
-impl<'a> Announce for UdpTracker<'a> {
-    async fn announce(self, request: &TrackerRequest) -> anyhow::Result<TrackerResponse> {
-        todo!()
-    }
-}
+// impl<'a> Announce for UdpTracker<'a> {
+//     async fn announce(self, request: &TrackerRequest) -> anyhow::Result<TrackerResponse> {
+//         todo!()
+//     }
+// }

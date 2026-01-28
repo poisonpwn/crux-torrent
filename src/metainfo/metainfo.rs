@@ -5,6 +5,7 @@ use std::path::Path;
 use tokio::fs;
 
 #[derive(Debug, Deserialize)]
+#[allow(unused)]
 pub struct Metainfo {
     pub announce: TrackerUrl,
 
