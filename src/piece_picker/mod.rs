@@ -6,10 +6,7 @@ use crossbeam_skiplist::SkipSet;
 use simple_semaphore::{Permit, Semaphore};
 use std::sync::Arc;
 
-use crate::{
-    metainfo::PieceHash,
-    peers::{PieceIndex, PieceLength},
-};
+use crate::{metainfo::PieceHash, peers::PieceIndex, peers::PieceLength};
 
 pub use piece_picker::PiecePicker;
 pub use piece_picker_handle::{PieceHandle, PiecePickerHandle, PiecePickerPrototype};

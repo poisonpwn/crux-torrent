@@ -1,6 +1,6 @@
 use simple_semaphore::Semaphore;
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::mpsc, time::sleep};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::prelude::*;
@@ -19,8 +19,6 @@ use tokio::sync::Notify;
 pub struct PiecePicker {
     // pieces that need to be downloaded in an ordered iterable data structure
     piece_queue: Arc<PieceQueue>,
-    // lookup from PieceIndex -> PieceInfo
-    piece_infos: Arc<Vec<PieceInfo>>,
     // handle to receive availability and piece update messsages from workers
     piece_rx: mpsc::Receiver<PiecePickerMessage>,
     // lookup from PieceIndex -> PieceFreq
@@ -28,6 +26,7 @@ pub struct PiecePicker {
     shutdown_token: CancellationToken,
     done_notify: Arc<Notify>,
     n_received: u32,
+    npieces: u32,
 }
 
 impl PiecePicker {
@@ -45,7 +44,9 @@ impl PiecePicker {
             Arc::new(pool)
         };
 
-        let piece_freq = vec![0; piece_infos.len()];
+        let npieces = piece_infos.len() as u32;
+        let piece_freq = vec![0; npieces as usize];
+
         let piece_queue = PieceQueue::new();
         let piece_infos = Arc::new(piece_infos);
         let done_notify = Arc::new(Notify::new());
@@ -57,11 +58,9 @@ impl PiecePicker {
         let piece_queue = Arc::new(piece_queue);
 
         let piece_picker = Self {
-            piece_infos: Arc::clone(&piece_infos),
             piece_queue: piece_queue.clone(),
+            npieces,
             piece_rx,
-            // start: 0,
-            // end: 0,
             done_notify: Arc::clone(&done_notify),
             piece_freq,
             n_received: 0,
@@ -76,11 +75,10 @@ impl PiecePicker {
     #[instrument("piece picker", level = "debug", skip_all)]
     pub async fn run(&mut self) -> anyhow::Result<()> {
         loop {
-            if self.n_received == (self.piece_infos.len() as u32) {
+            if self.n_received == self.npieces {
                 info!(
                     "received all pieces ({} out of {}), shutting down piece picker",
-                    self.n_received,
-                    self.piece_infos.len()
+                    self.n_received, self.npieces,
                 );
                 self.done_notify.notify_one();
                 return Ok(());

@@ -192,7 +192,8 @@ impl Drop for PiecePickerHandle {
         // spawn a new async task to push the message about the peer dying
         tokio::spawn(async move {
             let mesg = PiecePickerMessage::Died(bitfield);
-            piece_picker_tx.send(mesg).await
+            // this could fail if the piece picker has died already.
+            let _ = piece_picker_tx.send(mesg).await;
         });
     }
 }
