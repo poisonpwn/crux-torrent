@@ -1,4 +1,5 @@
 mod cli;
+mod disk_worker;
 mod metainfo;
 mod peer_protocol;
 mod peers;
