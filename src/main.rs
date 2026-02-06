@@ -6,6 +6,7 @@ mod piece_picker;
 mod prelude;
 mod torrent;
 mod tracker;
+mod ui;
 
 use clap::Parser;
 use cli::Cli;
@@ -28,35 +29,64 @@ use tracker::{
 };
 
 use tracing_flame::FlameLayer;
+
 use tracing_subscriber::{filter, fmt, layer::SubscriberExt, registry::Registry, Layer};
+
+use crate::ui::App;
+
+const FLAME_TRACE_VAR: &str = "FLAME_TRACE"; // turns on flametrace if enabled
+const TUI_DISABLE_VAR: &str = "TUI_DISABLE"; // turns off TUI if enabled
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let fmt_layer = fmt::Layer::default()
-        .pretty()
-        .with_filter(filter::LevelFilter::TRACE);
+    let tui_enabled = std::env::var(TUI_DISABLE_VAR).is_err();
+    let (fmt_layer, tui_layer) = if !tui_enabled {
+        let fmt_layer = fmt::Layer::default()
+            .pretty()
+            .with_filter(filter::LevelFilter::INFO);
 
-    let (flame_layer, _flush_gaurd) =
-        FlameLayer::with_file("./tracing.folded").expect("could not initialize flame layer");
+        (Some(fmt_layer), None)
+    } else {
+        let tui_layer = tui_logger::TuiTracingSubscriberLayer;
+        (None, Some(tui_layer))
+    };
 
-    let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
+    let (flame_layer, _flush_guard) = if std::env::var(FLAME_TRACE_VAR).is_ok() {
+        let (flame_layer, flash_guard) =
+            FlameLayer::with_file("./tracing.folded").expect("could not initialize flame layer");
+        (Some(flame_layer), Some(flash_guard))
+    } else {
+        (None, None)
+    };
+
+    let subscriber = Registry::default()
+        .with(fmt_layer)
+        .with(flame_layer)
+        .with(tui_layer);
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("could not set global tracing subscriber");
 
-    tokio::select! {
-        Ok(_) = tokio::signal::ctrl_c() => {Ok(())},
-        result = run_app() => {result}
+    let shutdown_token = CancellationToken::new();
+    let gui_shutdown_token = shutdown_token.clone();
+    if tui_enabled {
+        std::thread::spawn(move || {
+            let app = App::default();
+            ratatui::run(move |terminal| {
+                let res = app.run(terminal);
+                gui_shutdown_token.cancel();
+                res
+            })
+        });
     }
 
-    // let fmt_layer = tracing_subscriber::fmt::tracing_subscriber::fmt()
-    //     .with_max_level(Level::INFO)
-    //     .pretty()
-    //     .with_target(false)
-    //     .init();
+    tokio::select! {
+        Ok(_) = tokio::signal::ctrl_c() => {Ok(())},
+        result = run_app(shutdown_token) => {result}
+    }
 }
 
-async fn run_app() -> anyhow::Result<()> {
+async fn run_app(shutdown_token: CancellationToken) -> anyhow::Result<()> {
     let matches = Cli::parse();
     let metainfo = metainfo::Metainfo::from_bencode_file(matches.source).await?;
 
@@ -105,8 +135,6 @@ async fn run_app() -> anyhow::Result<()> {
             },
         })
         .collect();
-
-    let shutdown_token = CancellationToken::new();
 
     let info_hash = metainfo.file_info.get_info_hash()?;
     let (mut piece_picker, piece_picker_handle, done_notify) =
