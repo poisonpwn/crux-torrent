@@ -69,21 +69,28 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let shutdown_token = CancellationToken::new();
     let gui_shutdown_token = shutdown_token.clone();
-    if tui_enabled {
+    let ui_handle = tui_enabled.then(|| {
+        let mut terminal = ratatui::init();
         tokio::spawn(async move {
             let ui = Ui::default();
-            let mut terminal = ratatui::init();
             let res = ui.run(&mut terminal).await;
-            ratatui::restore();
             gui_shutdown_token.cancel();
             res
-        });
-    }
+        })
+    });
 
-    tokio::select! {
+    let res = tokio::select! {
         Ok(_) = tokio::signal::ctrl_c() => {Ok(())},
         result = run_torrent(shutdown_token) => {result}
+    };
+
+    if let Some(handle) = ui_handle {
+        let a = handle.await;
+        ratatui::restore();
+        a??
     }
+
+    res
 }
 
 async fn run_torrent(shutdown_token: CancellationToken) -> anyhow::Result<()> {
