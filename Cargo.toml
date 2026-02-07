@@ -30,7 +30,7 @@ tracing-flame = "0.2.0"
 tui-logger = {version = "0.18.1",  features = ["tracing-support"]}
 urlencoding = "2.1.3"
 ratatui = "0.30.0"
-crossterm = "0.29.0"
+crossterm = {version = "0.29.0", features = ["event-stream"]}
 
 [dev-dependencies]
 rstest = "0.20.0"
