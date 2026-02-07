@@ -32,7 +32,7 @@ use tracing_flame::FlameLayer;
 
 use tracing_subscriber::{filter, fmt, layer::SubscriberExt, registry::Registry, Layer};
 
-use crate::ui::App;
+use crate::ui::Ui;
 
 const FLAME_TRACE_VAR: &str = "FLAME_TRACE"; // turns on flametrace if enabled
 const TUI_DISABLE_VAR: &str = "TUI_DISABLE"; // turns off TUI if enabled
@@ -70,23 +70,23 @@ async fn main() -> Result<(), anyhow::Error> {
     let shutdown_token = CancellationToken::new();
     let gui_shutdown_token = shutdown_token.clone();
     if tui_enabled {
-        std::thread::spawn(move || {
-            let app = App::default();
-            ratatui::run(move |terminal| {
-                let res = app.run(terminal);
-                gui_shutdown_token.cancel();
-                res
-            })
+        tokio::spawn(async move {
+            let ui = Ui::default();
+            let mut terminal = ratatui::init();
+            let res = ui.run(&mut terminal).await;
+            ratatui::restore();
+            gui_shutdown_token.cancel();
+            res
         });
     }
 
     tokio::select! {
         Ok(_) = tokio::signal::ctrl_c() => {Ok(())},
-        result = run_app(shutdown_token) => {result}
+        result = run_torrent(shutdown_token) => {result}
     }
 }
 
-async fn run_app(shutdown_token: CancellationToken) -> anyhow::Result<()> {
+async fn run_torrent(shutdown_token: CancellationToken) -> anyhow::Result<()> {
     let matches = Cli::parse();
     let metainfo = metainfo::Metainfo::from_bencode_file(matches.source).await?;
 

@@ -1,34 +1,52 @@
-use crossterm::event;
+use crossterm::event::{self, EventStream, KeyCode};
+use futures::stream::StreamExt;
 use ratatui::{DefaultTerminal, Frame};
+use tokio::time::{self, Duration};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget, TuiWidgetState};
 
-pub struct App {
+pub struct Ui {
     logger_state: TuiWidgetState,
 }
 
-impl App {
-    pub fn run(&self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+impl Ui {
+    const TICK_INTERVAL: Duration = Duration::from_millis(40);
+
+    pub async fn run(&self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         tui_logger::init_logger(tui_logger::LevelFilter::Off)?;
         tui_logger::set_default_level(tui_logger::LevelFilter::Info);
+        let mut events = EventStream::new();
 
         loop {
-            terminal.draw(Self::render)?;
-
-            if let event::Event::Key(key) = event::read()? {
-                type KC = event::KeyCode;
-                type Twe = tui_logger::TuiWidgetEvent;
-                match key.code {
-                    KC::Char('q') => break Ok(()),
-                    KC::Up => self.logger_state.transition(Twe::UpKey),
-                    KC::Down => self.logger_state.transition(Twe::DownKey),
-                    KC::PageDown => self.logger_state.transition(Twe::NextPageKey),
-                    KC::PageUp => self.logger_state.transition(Twe::PrevPageKey),
-                    KC::Left => self.logger_state.transition(Twe::LeftKey),
-                    KC::Right => self.logger_state.transition(Twe::RightKey),
-                    _ => {}
+            tokio::select! {
+                _  = time::sleep(Self::TICK_INTERVAL) => {
+                    terminal.draw(Self::render)?;
+                }
+                Some(event) = events.next() => {
+                    if let event::Event::Key(key) = event? {
+                        if let Some(res) = self.handle_key_event(key.code) {
+                            break res;
+                        }
+                    }
                 }
             }
         }
+    }
+
+    fn handle_key_event(&self, key_code: KeyCode) -> Option<anyhow::Result<()>> {
+        type Twe = tui_logger::TuiWidgetEvent;
+        type KC = KeyCode;
+        match key_code {
+            KC::Char('q') => return Some(Ok(())),
+            KC::Up => self.logger_state.transition(Twe::UpKey),
+            KC::Down => self.logger_state.transition(Twe::DownKey),
+            KC::PageDown => self.logger_state.transition(Twe::NextPageKey),
+            KC::PageUp => self.logger_state.transition(Twe::PrevPageKey),
+            KC::Left => self.logger_state.transition(Twe::LeftKey),
+            KC::Right => self.logger_state.transition(Twe::RightKey),
+            _ => {}
+        }
+
+        None
     }
 
     fn render(frame: &mut Frame) {
@@ -46,9 +64,9 @@ impl App {
     }
 }
 
-impl Default for App {
+impl Default for Ui {
     fn default() -> Self {
-        App {
+        Ui {
             logger_state: TuiWidgetState::new(),
         }
     }
