@@ -1,7 +1,6 @@
-use std::io::Bytes;
 use std::path::PathBuf;
 
-use crate::peers::{PieceIndex, PieceLength};
+use crate::torrent::{PieceIndex, PieceLength};
 mod noitree;
 
 struct FileSlice {

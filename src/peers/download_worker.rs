@@ -10,7 +10,8 @@ use crate::prelude::*;
 use crate::torrent::{InfoHash, PeerId};
 
 use super::progress::PieceDownloadProgress;
-use super::{PeerAddr, PieceIndex};
+use crate::peers::PeerAddr;
+use crate::torrent::PieceIndex;
 
 use crate::peer_protocol::codec::{upgrade_stream, PeerFrames, PeerMessage, PeerStream};
 use crate::peer_protocol::handshake::PeerHandshake;

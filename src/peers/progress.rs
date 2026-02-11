@@ -1,4 +1,5 @@
-use super::{BlockLength, BlockOffset, PieceLength};
+use super::{BlockLength, BlockOffset};
+use crate::torrent::PieceLength;
 use crate::{prelude::*, torrent::Bitfield};
 use std::{
     cmp::min,

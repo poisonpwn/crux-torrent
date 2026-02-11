@@ -1,6 +1,6 @@
 use super::comms::PiecePickerMessage;
 use super::{LockPool, PieceDone, PieceGaurd, PieceInfo, PieceQueue};
-use crate::peers::PieceIndex;
+use crate::torrent::PieceIndex;
 use crate::{metainfo::PieceHash, prelude::*, torrent::Bitfield};
 use std::mem::ManuallyDrop;
 use std::{sync::Arc, time::Duration};

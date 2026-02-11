@@ -2,11 +2,15 @@ mod comms;
 mod piece_picker;
 mod piece_picker_handle;
 
+use crate::torrent::Piece;
 use crossbeam_skiplist::SkipSet;
 use simple_semaphore::{Permit, Semaphore};
 use std::sync::Arc;
 
-use crate::{metainfo::PieceHash, peers::PieceIndex, peers::PieceLength};
+use crate::{
+    metainfo::PieceHash,
+    torrent::{PieceIndex, PieceLength},
+};
 
 pub use piece_picker::PiecePicker;
 pub use piece_picker_handle::{PieceHandle, PiecePickerHandle, PiecePickerPrototype};
@@ -28,6 +32,15 @@ struct PieceDone {
     piece_id: PieceIndex,
     piece: Vec<u8>,
     _piece_gaurd: PieceGaurd,
+}
+
+impl Into<Piece> for PieceDone {
+    fn into(self) -> Piece {
+        Piece {
+            piece_id: self.piece_id,
+            data: self.piece,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

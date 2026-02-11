@@ -1,4 +1,4 @@
-use crate::{peers::PieceIndex, torrent::Bitfield};
+use crate::torrent::{Bitfield, PieceIndex};
 
 use super::PieceDone;
 
