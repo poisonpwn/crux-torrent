@@ -4,6 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
+use crate::peers::download_worker::errors::PeerShutdown;
 use crate::piece_picker::{PieceHandle, PiecePickerHandle, PiecePickerPrototype};
 use crate::prelude::*;
 use crate::torrent::{InfoHash, PeerId};
@@ -134,7 +135,16 @@ where
         };
 
         loop {
-            worker.run(&mut piece_picker_handle).await?;
+            let res = worker.run(&mut piece_picker_handle).await;
+
+            if res
+                .as_ref()
+                .is_err_and(|e| e.downcast_ref::<PeerShutdown>().is_some())
+            {
+                return Ok(());
+            }
+
+            res?
         }
     }
 
@@ -145,11 +155,11 @@ where
         let piece_handle = tokio::select! {
             _ = self.shutdown_token.cancelled() => {
                 info!("shutdown signal received, shutting down worker");
-                eyre::bail!("shutdown signal received, shutting down worker for {:?}", self.peer_id);
+                return Err(self::errors::PeerShutdown.into());
             }
 
             next_piece_res = piece_picker_handle.next_piece() => next_piece_res.map_err(|err| {
-                let mesg = "error whiel fetching next piece from piece picker";
+                let mesg = "error while fetching next piece from piece picker";
                 error!(mesg);
                 err.wrap_err(mesg)
             })?
@@ -314,4 +324,8 @@ mod errors {
     #[derive(Error, Debug)]
     #[error("peer closed connection before bitfield message was received")]
     pub struct PeerConnClosedBeforeBitfield;
+
+    #[derive(Error, Debug)]
+    #[error("received signal to shut down peer")]
+    pub struct PeerShutdown;
 }
