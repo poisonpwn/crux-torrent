@@ -5,6 +5,7 @@ use tokio_util::{
     codec::{length_delimited::LengthDelimitedCodec, Decoder, Encoder, Framed},
 };
 
+use crate::prelude::*;
 use crate::torrent::Bitfield;
 
 struct PeerMessageTags;
@@ -75,10 +76,10 @@ impl PeerMessageCodec {
     }
 
     // helper method to bail if the peer sends invalid (less than what is required) payload for the particular variant.
-    fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> anyhow::Result<()> {
+    fn bail_on_size_mismatch(src: &mut bytes::BytesMut, min_size: usize) -> eyre::Result<()> {
         let len = src.len();
         if len < min_size {
-            anyhow::bail!(
+            eyre::bail!(
                 "buf size sent by peer {} does not match size for tag {}",
                 len,
                 min_size
@@ -88,7 +89,7 @@ impl PeerMessageCodec {
     }
 
     // helper method for the Cancel and Request variants only.
-    fn decode_triple_variant(src: &mut bytes::BytesMut) -> anyhow::Result<(u32, u32, u32)> {
+    fn decode_triple_variant(src: &mut bytes::BytesMut) -> eyre::Result<(u32, u32, u32)> {
         const TRIPLE_SIZE: usize = 3 * std::mem::size_of::<u32>();
         Self::bail_on_size_mismatch(src, TRIPLE_SIZE)?;
         Ok((src.get_u32(), src.get_u32(), src.get_u32()))
@@ -97,9 +98,9 @@ impl PeerMessageCodec {
 
 impl Decoder for PeerMessageCodec {
     type Item = PeerMessage;
-    type Error = anyhow::Error;
+    type Error = eyre::Error;
 
-    fn decode(&mut self, src: &mut bytes::BytesMut) -> anyhow::Result<Option<Self::Item>> {
+    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut frame = match self.inner_codec.decode(src)? {
             Some(frame) => frame,
             None => return Ok(None),
@@ -151,7 +152,7 @@ impl Decoder for PeerMessageCodec {
                     length,
                 }
             }
-            invalid_tag => anyhow::bail!("invalid protocol tag for peer message: {}", invalid_tag),
+            invalid_tag => eyre::bail!("invalid protocol tag for peer message: {}", invalid_tag),
         };
 
         Ok(Some(msg))
@@ -159,7 +160,7 @@ impl Decoder for PeerMessageCodec {
 }
 
 impl Encoder<PeerMessage> for PeerMessageCodec {
-    type Error = anyhow::Error;
+    type Error = eyre::Error;
     fn encode(&mut self, item: PeerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         // inner codec is not used as it would require allocating another BytesMut
         // instead we write directly to the dst buffer of the Framed instance.
@@ -223,13 +224,13 @@ impl Encoder<PeerMessage> for PeerMessageCodec {
 pub type PeerFrames<T> = Framed<T, PeerMessageCodec>;
 pub trait PeerStream:
     Stream<Item = Result<PeerMessage, <PeerMessageCodec as Decoder>::Error>>
-    + Sink<PeerMessage, Error = anyhow::Error>
+    + Sink<PeerMessage, Error = eyre::Error>
 {
 }
 
 impl<T> PeerStream for T where
     T: Stream<Item = Result<PeerMessage, <PeerMessageCodec as Decoder>::Error>>
-        + Sink<PeerMessage, Error = anyhow::Error>
+        + Sink<PeerMessage, Error = eyre::Error>
 {
 }
 

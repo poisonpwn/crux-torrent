@@ -85,7 +85,7 @@ impl PieceDownloadProgress {
     }
 
     #[instrument(level = "trace", skip_all, fields(offset))]
-    pub fn update_downloaded(&mut self, offset: BlockOffset) -> anyhow::Result<()> {
+    pub fn update_downloaded(&mut self, offset: BlockOffset) -> eyre::Result<()> {
         let block_id = offset / Self::MAX_BLOCK_SIZE;
         match self
             .pending
@@ -109,7 +109,7 @@ impl PieceDownloadProgress {
                     "received block not in queue, block_id: {} (offset: {})",
                     block_id, offset
                 );
-                anyhow::bail!(
+                eyre::bail!(
                     "received block not in queue, block_id: {} (offset: {})",
                     block_id,
                     offset

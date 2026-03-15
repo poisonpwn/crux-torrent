@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use crate::torrent::{InfoHash, PeerId};
 use urlencoding;
 
@@ -27,7 +28,7 @@ pub struct TrackerRequest {
 }
 
 impl TrackerRequest {
-    pub fn new(peer_id: PeerId, port: u16, requestable: &impl Requestable) -> anyhow::Result<Self> {
+    pub fn new(peer_id: PeerId, port: u16, requestable: &impl Requestable) -> eyre::Result<Self> {
         Ok(Self {
             info_hash: requestable.get_info_hash()?,
             peer_id,
@@ -73,6 +74,7 @@ impl TrackerRequest {
 }
 
 pub trait Requestable {
-    fn get_info_hash(&self) -> anyhow::Result<InfoHash>;
+    type Error: std::error::Error + Sync + Send + 'static;
+    fn get_info_hash(&self) -> Result<InfoHash, Self::Error>;
     fn get_request_length(&self) -> usize;
 }

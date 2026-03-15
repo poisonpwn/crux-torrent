@@ -5,4 +5,7 @@ pub use tracing::{
 };
 
 #[allow(unused)]
-pub use anyhow::Context;
+pub use color_eyre::{
+    eyre::{self, Context},
+    Help,
+};

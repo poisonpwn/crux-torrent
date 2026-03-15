@@ -18,7 +18,7 @@ pub struct PieceHandle {
 }
 
 impl PieceHandle {
-    pub async fn submit(self, piece: Vec<u8>) -> anyhow::Result<()> {
+    pub async fn submit(self, piece: Vec<u8>) -> eyre::Result<()> {
         self.piece_tx
             .send(PiecePickerMessage::PieceDone(PieceDone {
                 piece_id: self.piece_id,
@@ -84,13 +84,13 @@ impl PiecePickerHandle {
     pub async fn init_with_bitfield(
         proto: PiecePickerPrototype,
         bitfield: Bitfield,
-    ) -> anyhow::Result<Self> {
+    ) -> eyre::Result<Self> {
         let init_mesg = PiecePickerMessage::Init(bitfield.clone());
         proto
             .piece_tx
             .send(init_mesg)
             .await
-            .inspect_err(|_| warn!("failed to send bitfield init message to piece picker"))?;
+            .wrap_err("failed to send bitfield init message to piece picker")?;
 
         Ok(Self {
             lock_pool: proto.lock_pool,
@@ -101,10 +101,11 @@ impl PiecePickerHandle {
             piece_picker_tx: ManuallyDrop::new(proto.piece_tx),
         })
     }
+
     pub async fn init_with_have_id(
         proto: PiecePickerPrototype,
         piece_id: PieceIndex,
-    ) -> anyhow::Result<Self> {
+    ) -> eyre::Result<Self> {
         let npieces = proto.piece_infos.len();
         let bitfield = {
             let mut bf = Bitfield::new();
@@ -117,10 +118,10 @@ impl PiecePickerHandle {
     }
 
     #[instrument("handle have_piece", level = "debug", skip_all, fields(piece_id))]
-    pub async fn have_piece(&mut self, piece_id: PieceIndex) -> anyhow::Result<()> {
+    pub async fn have_piece(&mut self, piece_id: PieceIndex) -> eyre::Result<()> {
         if self.bitfield.get(piece_id).is_none_or(|bit| *bit) {
             warn!("piece id bit to be set either doesn't exist or is already set");
-            anyhow::bail!("piece id bit to be set either doesn't exist or is already set");
+            eyre::bail!("piece id bit to be set either doesn't exist or is already set");
         }
 
         self.bitfield.set(piece_id, true);
@@ -131,7 +132,7 @@ impl PiecePickerHandle {
     }
 
     #[instrument("handle next_piece", level = "debug", skip_all)]
-    pub async fn next_piece(&self) -> anyhow::Result<PieceHandle> {
+    pub async fn next_piece(&self) -> eyre::Result<PieceHandle> {
         debug!("fetching next piece to download from the download queue");
         loop {
             if self.piece_queue.is_empty() {

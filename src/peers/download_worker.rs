@@ -33,7 +33,7 @@ pub async fn connect_and_handshake(
     peer_addr: PeerAddr,
     info_hash: InfoHash,
     self_peer_id: PeerId,
-) -> anyhow::Result<PeerDownloaderConnection<PeerFrames<TcpStream>>> {
+) -> eyre::Result<PeerDownloaderConnection<PeerFrames<TcpStream>>> {
     info!("connecting to peer");
     let mut stream = TcpStream::connect(&peer_addr).await?;
 
@@ -73,7 +73,7 @@ where
         }: PeerDownloaderConnection<T>,
         shutdown_token: CancellationToken,
         piece_picker_proto: PiecePickerPrototype,
-    ) -> anyhow::Result<()> {
+    ) -> eyre::Result<()> {
         let mut peer_is_choked = true;
 
         type PM = PeerMessage;
@@ -82,7 +82,7 @@ where
         peer_stream
             .send(PM::Interested)
             .await
-            .context("error while sending interested")?;
+            .wrap_err("error while sending interested")?;
 
         let mut piece_picker_handle = loop {
             let msg = peer_stream.next().await.ok_or_else(|| {
@@ -96,7 +96,7 @@ where
                         .await
                         .map_err(|e| {
                             error!("piece picker handle initiliaztion failed");
-                            e.context("failed to create piece picker handle")
+                            e.wrap_err("failed to create piece picker handle")
                         })?
                 }
                 PM::Choke => {
@@ -116,9 +116,11 @@ where
                     )
                     .await?;
                 }
+
                 _ => {
-                    error!("first message sent by peer was not a bitfield {:?}", msg);
-                    anyhow::bail!("first message sent by peer not a bitfield {:?}", msg);
+                    let err_mesg = format!("first message sent by peer was not bitfield {:?}", msg);
+                    error!(err_mesg);
+                    eyre::bail!(err_mesg);
                 }
             };
         };
@@ -137,18 +139,19 @@ where
     }
 
     #[instrument("download worker", level = "debug", skip_all)]
-    async fn run(&mut self, piece_picker_handle: &mut PiecePickerHandle) -> anyhow::Result<()> {
+    async fn run(&mut self, piece_picker_handle: &mut PiecePickerHandle) -> eyre::Result<()> {
         debug!("worker fetching next piece");
 
         let piece_handle = tokio::select! {
             _ = self.shutdown_token.cancelled() => {
                 info!("shutdown signal received, shutting down worker");
-                anyhow::bail!("shutdown signal received, shutting down worker for {:?}", self.peer_id);
+                eyre::bail!("shutdown signal received, shutting down worker for {:?}", self.peer_id);
             }
 
             next_piece_res = piece_picker_handle.next_piece() => next_piece_res.map_err(|err| {
-                error!("error while fetching next piece from piece picker");
-                err.context("fetching next piece from piece picker")
+                let mesg = "error whiel fetching next piece from piece picker";
+                error!(mesg);
+                err.wrap_err(mesg)
             })?
         };
 
@@ -175,7 +178,7 @@ where
         &mut self,
         piece_handle: &PieceHandle,
         piece_picker_handle: &mut PiecePickerHandle,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> eyre::Result<Vec<u8>> {
         let mut progress = PieceDownloadProgress::new(piece_handle.piece_length);
         let mut piece = vec![0; piece_handle.piece_length as usize];
 
@@ -207,8 +210,9 @@ where
                     let msg = match msg {
                         Some(msg) => msg?,
                         None => {
-                            warn!("peer closed connection before piece could be downloaded");
-                            anyhow::bail!("peer closed connection before piece could be downloaded");
+                            let err_mesg = "peer closed connection before piece could be downloaded";
+                            warn!(err_mesg);
+                            eyre::bail!(err_mesg);
                         }
                     };
 
@@ -216,8 +220,9 @@ where
                 }
 
                 _ = self.shutdown_token.cancelled() => {
-                    info!("shutdown signal received shutting down worker");
-                    anyhow::bail!("shutting down.");
+                    let err_mesg = "shutdown signal received shutting down worker";
+                    info!(err_mesg);
+                    eyre::bail!(err_mesg);
                 }
             }
         }
@@ -225,7 +230,7 @@ where
         let piece_hash = Sha1::from(&piece).digest().bytes();
         if piece_hash != piece_handle.piece_hash {
             error!("downloaded piece hash check failed");
-            anyhow::bail!("piece hash check failed");
+            eyre::bail!("piece hash check failed");
         }
 
         debug!("piece hash check succeeded");
@@ -242,7 +247,7 @@ where
         download_progress: &mut PieceDownloadProgress,
         // used to send piece frequency updates (have and bitfield) to piece picker
         piece_picker_handle: &mut PiecePickerHandle,
-    ) -> anyhow::Result<()> {
+    ) -> eyre::Result<()> {
         type PM = PeerMessage;
         match msg {
             PM::Choke => {

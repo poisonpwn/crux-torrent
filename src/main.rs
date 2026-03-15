@@ -31,7 +31,8 @@ use tracing_flame::FlameLayer;
 use tracing_subscriber::{filter, fmt, layer::SubscriberExt, registry::Registry, Layer};
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+#[instrument(err, skip_all)]
+async fn main() -> eyre::Result<()> {
     let fmt_layer = fmt::Layer::default()
         .pretty()
         .with_filter(filter::LevelFilter::TRACE);
@@ -56,9 +57,11 @@ async fn main() -> Result<(), anyhow::Error> {
     //     .init();
 }
 
-async fn run_app() -> anyhow::Result<()> {
+async fn run_app() -> eyre::Result<()> {
     let matches = Cli::parse();
-    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source).await?;
+    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source)
+        .await
+        .context("read torrent file")?;
 
     let peer_id = PeerId::random();
     let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
@@ -114,7 +117,7 @@ async fn run_app() -> anyhow::Result<()> {
 
     let piece_picker_join_handle = tokio::spawn(async move { piece_picker.run().await });
 
-    let mut join_set = task::JoinSet::<anyhow::Result<()>>::new();
+    let mut join_set = task::JoinSet::<eyre::Result<()>>::new();
 
     let mut abort_handles = Vec::new();
     for addr in &response.peer_addreses {
@@ -150,7 +153,8 @@ async fn run_app() -> anyhow::Result<()> {
     level = "info",
     name = "peer worker",
     fields(peer = %peer_addr),
-    skip_all
+    skip_all,
+    err,
 )]
 async fn spawn_peer(
     peer_addr: PeerAddr,
@@ -158,7 +162,7 @@ async fn spawn_peer(
     shutdown_token: CancellationToken,
     info_hash: InfoHash,
     peer_id: PeerId,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let connx = connect_and_handshake(peer_addr, info_hash, peer_id).await?;
     PeerDownloadWorker::start_from(connx, shutdown_token, piece_picker_proto).await
 }

@@ -32,10 +32,9 @@ pub struct Metainfo {
 }
 
 impl Metainfo {
-    pub async fn from_bencode_file(file: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub async fn from_bencode_file(file: impl AsRef<Path>) -> color_eyre::Result<Self> {
         let file_contents = fs::read(file).await?;
-        let metainfo: Metainfo =
-            serde_bencode::from_bytes(&file_contents).map_err(anyhow::Error::msg)?;
+        let metainfo: Metainfo = serde_bencode::from_bytes(&file_contents)?;
         Ok(metainfo)
     }
 }

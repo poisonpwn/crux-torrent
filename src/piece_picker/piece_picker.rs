@@ -73,7 +73,7 @@ impl PiecePicker {
     }
 
     #[instrument("piece picker", level = "debug", skip_all)]
-    pub async fn run(&mut self) -> anyhow::Result<()> {
+    pub async fn run(&mut self) -> eyre::Result<()> {
         loop {
             if self.n_received == self.npieces {
                 info!(
@@ -98,7 +98,7 @@ impl PiecePicker {
         }
     }
 
-    fn handle_message(&mut self, piece_picker_message: PiecePickerMessage) -> anyhow::Result<()> {
+    fn handle_message(&mut self, piece_picker_message: PiecePickerMessage) -> eyre::Result<()> {
         type PM = PiecePickerMessage;
         match piece_picker_message {
             PM::Init(bitfield) => {
@@ -114,7 +114,7 @@ impl PiecePicker {
                         // this task, which is "single threaded", so there should no concurrent
                         // modification of the frequency information).
 
-                        assert!(
+                        debug_assert!(
                             !self
                                 .piece_queue
                                 .iter()

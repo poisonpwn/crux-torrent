@@ -1,4 +1,5 @@
 use super::{FileInfo, PieceHash};
+use crate::prelude::*;
 use crate::torrent::InfoHash;
 use crate::tracker::request::Requestable;
 use serde::{Deserialize, Serialize};
@@ -43,7 +44,9 @@ pub enum DownloadInfo {
 }
 
 impl Requestable for DownloadInfo {
-    fn get_info_hash(&self) -> anyhow::Result<InfoHash> {
+    type Error = serde_bencode::error::Error;
+
+    fn get_info_hash(&self) -> Result<InfoHash, Self::Error> {
         let info_hash = serde_bencode::to_bytes(self)?;
         Ok(InfoHash::new(Sha1::from(info_hash).digest().bytes()))
     }

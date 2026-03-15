@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use serde::Deserialize;
 use std::net::SocketAddrV4;
 
@@ -23,13 +24,13 @@ pub enum TrackerResponseResult {
     },
 }
 
-impl From<TrackerResponseResult> for anyhow::Result<TrackerResponse> {
+impl From<TrackerResponseResult> for color_eyre::Result<TrackerResponse> {
     fn from(value: TrackerResponseResult) -> Self {
         type TR = TrackerResponseResult;
         match value {
             TR::Success(tracker_response) => Ok(tracker_response),
             TR::Failure { failure_reason } => {
-                anyhow::bail!(format!("{} (Tracker)", failure_reason))
+                eyre::bail!("{} (Tracker)", failure_reason)
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use reqwest::IntoUrl;
 use reqwest::Url;
 use serde::{de::Visitor, Deserialize};
@@ -52,12 +53,12 @@ impl Into<Url> for UdpUrl {
 }
 
 impl TrackerUrl {
-    fn new(url: impl IntoUrl) -> anyhow::Result<Self> {
+    fn new(url: impl IntoUrl) -> eyre::Result<Self> {
         let url = url.into_url()?;
         Ok(match url.scheme() {
             "http" => Self::Http(HttpUrl(url)),
             "udp" => Self::Udp(UdpUrl(url)),
-            scheme => anyhow::bail!(format!("unsupported scheme {:?} for tracker", scheme)),
+            scheme => eyre::bail!(format!("unsupported scheme {:?} for tracker", scheme)),
         })
     }
 }
