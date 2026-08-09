@@ -4,6 +4,7 @@ compile_error!(
 );
 
 mod cli;
+mod disk_worker;
 mod metainfo;
 mod peer_protocol;
 mod peers;
@@ -14,6 +15,7 @@ mod tracker;
 
 use clap::Parser;
 use cli::Cli;
+use disk_worker::DiskWorker;
 use piece_picker::{PiecePicker, PiecePickerPrototype};
 use prelude::*;
 
@@ -132,9 +134,14 @@ async fn run_app(args: Cli) -> eyre::Result<()> {
 
     let shutdown_token = CancellationToken::new();
 
+    let download_files = disk_worker::open_download_files(&metainfo.file_info, &args.output_dir)
+        .wrap_err("failed to open download files")?;
+    let (disk_worker_handle, disk_worker_join_handle) =
+        DiskWorker::spawn(download_files, piece_length, shutdown_token.clone());
+
     let info_hash = metainfo.file_info.get_info_hash()?;
     let (mut piece_picker, piece_picker_handle, done_notify) =
-        PiecePicker::new(piece_infos, shutdown_token.clone());
+        PiecePicker::new(piece_infos, disk_worker_handle, shutdown_token.clone());
 
     let piece_picker_join_handle = tokio::spawn(async move { piece_picker.run().await });
 
@@ -165,8 +172,15 @@ async fn run_app(args: Cli) -> eyre::Result<()> {
     // errored out but it doesn't matter if we downloaded everything.
     join_set.join_all().await;
 
-    // but this needs to be checked, since it could be that pieces were not flushed properly.
+    // propagate any error from the piece picker task itself. once this resolves, `piece_picker`
+    // (and the `DiskWorkerHandle` it owned) has been dropped.
     piece_picker_join_handle.await??;
+
+    // shutdown_token was already cancelled above, which stops the disk worker's stale-check
+    // ticker; combined with the piece picker's handle being dropped, the disk worker's channel
+    // is now closed, so it will flush every remaining pending byte before this resolves.
+    disk_worker_join_handle.await??;
+
     Ok(())
 }
 
@@ -184,6 +198,20 @@ async fn spawn_peer(
     info_hash: InfoHash,
     peer_id: PeerId,
 ) -> eyre::Result<()> {
-    let connx = connect_and_handshake(peer_addr, info_hash, peer_id).await?;
+    let connx = match connect_and_handshake(peer_addr, info_hash, peer_id).await {
+        Ok(connx) => connx,
+        // a refused connection is routine (dead peer, or the tracker handing us back our own
+        // unlistened-on address) and already tolerated by the caller, so it doesn't warrant an
+        // ERROR-level log; anything else is still surfaced via the `err` instrumentation below.
+        Err(err)
+            if err
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::ConnectionRefused) =>
+        {
+            info!("peer refused the connection");
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
     PeerDownloadWorker::start_from(connx, shutdown_token, piece_picker_proto).await
 }
