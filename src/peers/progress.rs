@@ -21,8 +21,9 @@ pub(super) struct PieceDownloadProgress {
 }
 
 impl PieceDownloadProgress {
-    const MAX_BLOCK_SIZE: u32 = 1 << 14;
-    const MAX_PENDING_BLOCKS: u32 = 5;
+    // visible to `super::request_window`, which needs to convert its byte-rate estimate into a
+    // block count using the same block size requests are actually chunked into.
+    pub(super) const MAX_BLOCK_SIZE: u32 = 1 << 14;
     const REQUEUE_TIMEOUT: Duration = Duration::from_millis(800);
 
     pub fn new(piece_length: PieceLength) -> Self {
@@ -37,7 +38,11 @@ impl PieceDownloadProgress {
         }
     }
 
-    pub fn next_block_info(&mut self) -> Option<(BlockOffset, BlockLength)> {
+    /// returns the next block to request, if any, given that at most `max_pending` blocks should
+    /// be outstanding at once. `max_pending` comes from the connection's
+    /// [`super::request_window::RequestWindow`], which sizes it to the peer's measured speed
+    /// rather than a fixed constant.
+    pub fn next_block_info(&mut self, max_pending: u32) -> Option<(BlockOffset, BlockLength)> {
         let now = Instant::now();
 
         // if the oldest block request became stale, requeue it and return the block to be re-requested.
@@ -57,7 +62,7 @@ impl PieceDownloadProgress {
             return Some(self.get_block_info(block_id));
         }
 
-        let reached_max_pending = self.pending.len() as u32 >= Self::MAX_PENDING_BLOCKS;
+        let reached_max_pending = self.pending.len() as u32 >= max_pending;
 
         if reached_max_pending {
             debug!("request blocks pipeline filled");

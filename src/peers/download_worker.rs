@@ -10,6 +10,7 @@ use crate::prelude::*;
 use crate::torrent::{InfoHash, PeerId};
 
 use super::progress::PieceDownloadProgress;
+use super::request_window::RequestWindow;
 use crate::peers::PeerAddr;
 use crate::torrent::PieceIndex;
 
@@ -29,6 +30,9 @@ pub struct PeerDownloadWorker<T: PeerStream> {
     peer_is_choked: bool,
     we_are_interested: bool,
     shutdown_token: CancellationToken,
+    // paces the request pipeline to this peer's measured speed rather than a fixed depth; lives
+    // on the worker (not per-piece) so its rate estimate carries over across pieces.
+    window: RequestWindow,
 }
 
 pub async fn connect_and_handshake(
@@ -133,6 +137,7 @@ where
             shutdown_token,
             peer_is_choked,
             we_are_interested: false,
+            window: RequestWindow::new(),
         };
 
         loop {
@@ -204,7 +209,9 @@ where
             }
 
             if !self.peer_is_choked {
-                while let Some((begin, length)) = progress.next_block_info() {
+                while let Some((begin, length)) =
+                    progress.next_block_info(self.window.desired_pending_blocks())
+                {
                     let request = PeerMessage::Request {
                         index: piece_handle.piece_id as u32,
                         begin,
@@ -288,6 +295,7 @@ where
                 }
 
                 trace!(block_length = block.len());
+                self.window.on_block_received(block.len() as u32);
                 let _ = download_progress.update_downloaded(begin);
 
                 trace!("writing block to piece");
