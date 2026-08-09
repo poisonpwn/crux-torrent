@@ -3,7 +3,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::disk_worker::DiskWorkerHandle;
 use crate::prelude::*;
+use crate::torrent::Piece;
 
 use super::{
     comms::PiecePickerMessage, PieceDone, PieceFreq, PieceInfo, PieceKey, PiecePickerPrototype,
@@ -27,6 +29,7 @@ pub struct PiecePicker {
     done_notify: Arc<Notify>,
     n_received: u32,
     npieces: u32,
+    disk_worker_handle: DiskWorkerHandle,
 }
 
 impl PiecePicker {
@@ -34,6 +37,7 @@ impl PiecePicker {
 
     pub fn new(
         piece_infos: Vec<PieceInfo>,
+        disk_worker_handle: DiskWorkerHandle,
         shutdown_token: CancellationToken,
     ) -> (Self, PiecePickerPrototype, Arc<Notify>) {
         let (piece_tx, piece_rx) = mpsc::channel(Self::PIECE_BUFFER_SIZE);
@@ -65,6 +69,7 @@ impl PiecePicker {
             piece_freq,
             n_received: 0,
             shutdown_token,
+            disk_worker_handle,
         };
         let picker_handle =
             PiecePickerPrototype::new(piece_queue, lock_pool, piece_infos, piece_tx);
@@ -136,16 +141,17 @@ impl PiecePicker {
 
             PM::PieceDone(PieceDone {
                 piece_id,
-                // TODO: remove directive once flush to disk is implemented correctly
-                #[allow(unused)]
                 piece,
                 _piece_gaurd,
             }) => {
                 debug!("receieved piece done {}", piece_id);
 
-                //
-                // TODO flush the piece to disk here or pass it on to disk io manager.
-                //
+                self.disk_worker_handle
+                    .submit(Piece {
+                        piece_id,
+                        data: piece,
+                    })
+                    .wrap_err("failed to submit downloaded piece to the disk worker")?;
 
                 let freq = self.piece_freq[piece_id];
 
