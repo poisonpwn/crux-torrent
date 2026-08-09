@@ -1,3 +1,8 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!(
+    "crux-torrent's disk_worker relies on the Linux-only pwritev syscall; only Linux builds are supported."
+);
+
 mod cli;
 mod metainfo;
 mod peer_protocol;
@@ -33,12 +38,29 @@ use tracing_subscriber::{filter, fmt, layer::SubscriberExt, registry::Registry, 
 #[tokio::main]
 #[instrument(err, skip_all)]
 async fn main() -> eyre::Result<()> {
-    let fmt_layer = fmt::Layer::default()
-        .pretty()
-        .with_filter(filter::LevelFilter::TRACE);
+    let matches = Cli::parse();
+    type LF = filter::LevelFilter;
+    let log_level = match matches.verbose {
+        0 => {
+            if matches.quiet {
+                LF::ERROR
+            } else {
+                LF::WARN
+            }
+        }
+        1 => LF::INFO,
+        2 => LF::DEBUG,
+        _ => LF::TRACE,
+    };
+    let fmt_layer = fmt::Layer::default().pretty().with_filter(log_level);
 
-    let (flame_layer, _flush_gaurd) =
-        FlameLayer::with_file("./tracing.folded").expect("could not initialize flame layer");
+    let (flame_layer, _flush_gaurd) = if matches.generate_trace {
+        let (a, b) =
+            FlameLayer::with_file("./tracing.folded").expect("could not initialize flame layer");
+        (Some(a), Some(b))
+    } else {
+        (None, None)
+    };
 
     let subscriber = Registry::default().with(fmt_layer).with(flame_layer);
 
@@ -47,7 +69,7 @@ async fn main() -> eyre::Result<()> {
 
     tokio::select! {
         Ok(_) = tokio::signal::ctrl_c() => {Ok(())},
-        result = run_app() => {result}
+        result = run_app(matches) => {result}
     }
 
     // let fmt_layer = tracing_subscriber::fmt::tracing_subscriber::fmt()
@@ -57,14 +79,13 @@ async fn main() -> eyre::Result<()> {
     //     .init();
 }
 
-async fn run_app() -> eyre::Result<()> {
-    let matches = Cli::parse();
-    let metainfo = metainfo::Metainfo::from_bencode_file(matches.source)
+async fn run_app(args: Cli) -> eyre::Result<()> {
+    let metainfo = metainfo::Metainfo::from_bencode_file(args.source)
         .await
         .context("read torrent file")?;
 
     let peer_id = PeerId::random();
-    let request = TrackerRequest::new(peer_id.clone(), matches.port, &metainfo.file_info)?;
+    let request = TrackerRequest::new(peer_id.clone(), args.port, &metainfo.file_info)?;
     let client = reqwest::Client::new();
     let response = match metainfo.announce {
         // TODO: handle udp trackers, BEP: https://www.bittorrent.org/beps/bep_0015.html

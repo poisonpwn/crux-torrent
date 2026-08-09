@@ -1,3 +1,4 @@
+use clap::ArgAction;
 use clap::{self, Parser};
 
 use crate::prelude::*;
@@ -55,4 +56,17 @@ pub struct Cli {
     #[arg(short, long, default_value = "8860")]
     /// the port on which to listen to incoming messages.
     pub port: u16,
+
+    #[arg(short, long, action = ArgAction::Count, conflicts_with = "quiet")]
+    pub verbose: u8,
+
+    #[arg(short, long, conflicts_with = "verbose")]
+    pub quiet: bool,
+
+    #[arg(short, long)]
+    pub generate_trace: bool,
+
+    #[arg(short, long, default_value = ".")]
+    /// the directory downloaded files will be written into.
+    pub output_dir: PathBuf,
 }
