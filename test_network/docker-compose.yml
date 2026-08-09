@@ -18,6 +18,39 @@ services:
       - ./test.torrent:/watch/test.torrent
     deploy:
       replicas: 20
+    healthcheck:
+      # the transmission daemon (and its peer-listening port) isn't up the instant the
+      # container starts; wait for 51413 to actually accept connections before this replica
+      # counts as ready, so `docker compose up --wait` gives a real synchronization point
+      # instead of racing the client against a still-booting swarm.
+      test: ["CMD", "nc", "-z", "localhost", "51413"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      torrent_test_net:
+
+  peers-multi:
+    image: linuxserver/transmission:4.0.6
+    profiles:
+      - multi
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      # multi-file torrent: testdir/{a.bin, c.bin, sub/b.bin}, generated with:
+      # mktorrent -a http://172.30.0.1:6969/announce -l 18 -o test-multi.torrent testdir # in the test_network dir
+      - ./testdir:/downloads/complete/testdir # start seeding this directory
+      - ./test-multi.torrent:/watch/test-multi.torrent
+    deploy:
+      replicas: 20
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "51413"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
     networks:
       torrent_test_net:
 
