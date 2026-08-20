@@ -7,13 +7,11 @@ protocol, and streams verified pieces to disk through a dedicated async disk-wri
 It is a downloader, not a full client: there is no seeding, DHT, or UDP tracker support
 yet. See the [feature checklist](#feature-checklist) below for the exact boundary.
 
-> Linux only (the disk writer relies on the Linux `pwritev` syscall (see [Requirements](#requirements)).
+> Linux only - the disk writer relies on the Linux `pwritev` syscall (see [Requirements](#requirements)).
 
 ## Table of contents
 
-- [Features](#features)
 - [Feature checklist](#feature-checklist)
-- [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -23,8 +21,6 @@ yet. See the [feature checklist](#feature-checklist) below for the exact boundar
 - [Tracing / diagnostics](#tracing--diagnostics)
 
 ## Feature checklist
-
-### Implemented
 
 - [x] Bencode metainfo (`.torrent`) parsing
 - [x] HTTP tracker announce 
@@ -40,6 +36,8 @@ yet. See the [feature checklist](#feature-checklist) below for the exact boundar
 - [x] optimized write coalescing, threshold/age-based disk flushing via `pwritev`
 - [x] `tracing`-based structured logging
 - [x] `tracing-flame` profiling export
+- [ ] Migrate to compio (would make windows support easier)
+- [ ] Windows Support
 - [ ] Endgame mode
 - [ ] Resume support
 - [ ] UDP tracker support (BEP 15)
@@ -53,7 +51,7 @@ yet. See the [feature checklist](#feature-checklist) below for the exact boundar
 ## Requirements
 
 - Rust (stable toolchain; see `Cargo.toml` for the 2021 edition)
-- **Linux** (requires the pwritev syscall for disk, )
+- **Linux** (requires the pwritev syscall for disk, may expand to support windows in the future)
 - [Docker](https://docs.docker.com/get-docker/) + Compose, and `mktorrent` — only needed for the
   integration swarm described under [Testing](#testing)
 
